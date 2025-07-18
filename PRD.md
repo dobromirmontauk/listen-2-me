@@ -46,7 +46,7 @@ Listen 2 Me is a hands-free, voice-controlled note-taking application that captu
 
 ## Data Structures
 
-### Note Structure
+### Note Structure (Immutable with File-Based Storage)
 ```json
 {
   "id": "uuid",
@@ -54,28 +54,44 @@ Listen 2 Me is a hands-free, voice-controlled note-taking application that captu
   "title": "Auto-generated or user-provided title",
   "status": "recording|processing|completed",
   "duration_seconds": 1800,
-  "raw_audio_path": "/path/to/audio.wav",
-  "transcription": [
-    {
-      "sentence": "This is the first sentence I spoke about project planning.",
-      "start_time": 0.0,
-      "end_time": 5.2,
-      "confidence": 0.95,
-      "key_concepts": ["concept_id_1", "concept_id_2"]
-    },
-    {
-      "sentence": "Then I mentioned the budget constraints we're facing.",
-      "start_time": 5.2,
-      "end_time": 8.7,
-      "confidence": 0.89,
-      "key_concepts": ["concept_id_3"]
-    }
-  ],
-  "key_concepts": ["concept_id_1", "concept_id_2", "concept_id_3"]
+  "file_references": {
+    "audio_files": [
+      "audio/2024/01/2024-01-01T12-00-00Z_001.wav",
+      "audio/2024/01/2024-01-01T12-15-30Z_002.wav"
+    ],
+    "raw_transcription": "transcriptions/raw/2024-01-01T12-00-00Z.json",
+    "cleaned_transcription": "transcriptions/cleaned/2024-01-01T12-00-00Z.json", 
+    "annotated_transcription": "transcriptions/annotated/2024-01-01T12-00-00Z.json"
+  },
+  "relationships": {
+    "parent_note": "note_id_parent",
+    "child_notes": ["note_id_child1", "note_id_child2"],
+    "related_notes": ["note_id_related1"],
+    "continuation_of": "note_id_previous"
+  },
+  "key_concepts": ["concept_id_1", "concept_id_2", "concept_id_3"],
+  "immutable": true
 }
 ```
 
-### Key Concept Structure
+### Note Continuation Strategy
+**Core Principle:** Notes are immutable once completed. No editing or resuming allowed.
+
+**Continuation Workflow:**
+1. **User wants to continue**: Voice command "Listen 2 Me, continue previous note" 
+2. **New note creation**: App creates a completely new note with `continuation_of` link
+3. **Context preservation**: New note inherits key concepts from previous note for LLM context
+4. **Linking**: Previous note gets updated with new note ID in `child_notes` array
+5. **Display**: UI shows linked notes as a thread/conversation
+
+**Benefits:**
+- **Data integrity**: Original recordings never modified
+- **Audit trail**: Complete history of all changes and additions
+- **Parallel processing**: Multiple people can work on related topics simultaneously
+- **Recovery**: Can always go back to any previous state
+```
+
+### Hierarchical Key Concept Structure
 ```json
 {
   "id": "uuid",
@@ -84,8 +100,20 @@ Listen 2 Me is a hands-free, voice-controlled note-taking application that captu
   "first_mentioned": "2024-01-01T12:05:30Z",
   "last_mentioned": "2024-01-01T12:15:45Z",
   "mention_count": 3,
-  "related_concepts": ["concept_id_4", "concept_id_5"],
-  "notes": ["note_id_1", "note_id_2"]
+  "weight": 0.85,
+  "hierarchy": {
+    "parent_concept": "concept_id_parent",
+    "child_concepts": ["concept_id_child1", "concept_id_child2"],
+    "level": 2,
+    "path": "Engineering/Software/Quality"
+  },
+  "relationships": {
+    "related_concepts": ["concept_id_4", "concept_id_5"],
+    "synonyms": ["concept_id_alt1"],
+    "antonyms": ["concept_id_opposite"]
+  },
+  "notes": ["note_id_1", "note_id_2"],
+  "markdown_file": "concepts/engineering/software/quality.md"
 }
 ```
 
@@ -93,34 +121,176 @@ Listen 2 Me is a hands-free, voice-controlled note-taking application that captu
 
 **Note:** The JSON structures above are for documentation. In implementation, use more efficient formats:
 
-#### Transcription Matrix (Pandas DataFrame or Array-of-Arrays)
+#### 3-Version Transcription Matrices
 ```python
-# Column indices
-SENTENCE = 0
-START_TIME = 1  
-END_TIME = 2
-CONFIDENCE = 3
-KEY_CONCEPTS = 4  # List of concept IDs
+# Raw Transcription Matrix
+RAW_SEGMENT_ID = 0
+RAW_TEXT = 1
+RAW_START_TIME = 2
+RAW_END_TIME = 3
+RAW_CONFIDENCE = 4
+RAW_SERVICE = 5
 
-# Example as array-of-arrays
-transcription_matrix = [
-    ["This is the first sentence I spoke about project planning.", 0.0, 5.2, 0.95, ["concept_id_1", "concept_id_2"]],
-    ["Then I mentioned the budget constraints we're facing.", 5.2, 8.7, 0.89, ["concept_id_3"]],
-    ["We need to consider the timeline as well.", 8.7, 12.1, 0.92, ["concept_id_1", "concept_id_4"]]
+raw_transcription = [
+    ["seg_001", "um so like we need to uh think about the project planning you know", 0.0, 5.2, 0.95, "whisper"],
+    ["seg_002", "and then there's the budget stuff we gotta figure out", 5.2, 8.7, 0.89, "whisper"]
 ]
 
-# Or as Pandas DataFrame
-import pandas as pd
-transcription_df = pd.DataFrame(transcription_matrix, 
-                              columns=['sentence', 'start_time', 'end_time', 'confidence', 'key_concepts'])
+# Cleaned Transcription Matrix
+CLEAN_SEGMENT_ID = 0
+CLEAN_TEXT = 1
+CLEAN_START_TIME = 2
+CLEAN_END_TIME = 3
+CLEAN_CONFIDENCE = 4
+CLEAN_SOURCE_SEGMENTS = 5
+CLEAN_PROCESSING_TIME = 6
+CLEAN_LLM_SERVICE = 7
+
+cleaned_transcription = [
+    ["clean_001", "We need to think about the project planning.", 0.0, 5.2, 0.95, ["seg_001"], "2024-01-01T12:00:10Z", "claude"],
+    ["clean_002", "Then there's the budget we need to figure out.", 5.2, 8.7, 0.89, ["seg_002"], "2024-01-01T12:00:15Z", "claude"]
+]
+
+# Annotated Transcription Matrix  
+ANNO_SEGMENT_ID = 0
+ANNO_TEXT = 1
+ANNO_START_TIME = 2
+ANNO_END_TIME = 3
+ANNO_CONFIDENCE = 4
+ANNO_SOURCE_SEGMENTS = 5
+ANNO_KEY_CONCEPTS = 6
+ANNO_PROCESSING_TIME = 7
+ANNO_LLM_SERVICE = 8
+
+annotated_transcription = [
+    ["anno_001", "We need to think about the project planning.", 0.0, 5.2, 0.95, ["clean_001"], ["concept_id_1", "concept_id_2"], "2024-01-01T12:00:20Z", "gpt-4"],
+    ["anno_002", "Then there's the budget we need to figure out.", 5.2, 8.7, 0.89, ["clean_002"], ["concept_id_3"], "2024-01-01T12:00:25Z", "gpt-4"]
+]
 ```
 
 ### Storage Strategy
-* **Transcription**: Pandas DataFrame saved as Parquet/Pickle for efficiency
-* **Metadata**: JSON files for note metadata and key concept definitions
-* **Audio**: WAV files stored separately, referenced by path
-* **Index**: SQLite database for fast searching and relationships
-* **Backup**: Automatic daily backup of all data files
+
+#### Git + Markdown Primary Storage
+The primary source of truth will be human-readable Markdown files stored in a Git repository:
+
+```
+listen-2-me-data/
+├── notes/
+│   ├── 2024/
+│   │   ├── 01/
+│   │   │   ├── 2024-01-15T10-30-00Z-project-planning.md
+│   │   │   └── 2024-01-15T14-22-00Z-budget-discussion.md
+│   │   └── 02/
+│   └── templates/
+├── concepts/
+│   ├── engineering/
+│   │   ├── software/
+│   │   │   ├── quality.md
+│   │   │   └── design-patterns.md
+│   │   └── engineering.md
+│   └── business/
+│       ├── project-management.md
+│       └── budgeting.md
+├── audio/
+│   ├── 2024/
+│   │   └── 01/
+│   │       ├── 2024-01-15T10-30-00Z_001.wav
+│   │       ├── 2024-01-15T10-30-00Z_002.wav
+│   │       └── 2024-01-15T14-22-00Z_001.wav
+├── transcriptions/
+│   ├── raw/
+│   │   ├── 2024-01-15T10-30-00Z.json
+│   │   └── 2024-01-15T14-22-00Z.json
+│   ├── cleaned/
+│   │   ├── 2024-01-15T10-30-00Z.json
+│   │   └── 2024-01-15T14-22-00Z.json
+│   └── annotated/
+│       ├── 2024-01-15T10-30-00Z.json
+│       └── 2024-01-15T14-22-00Z.json
+└── .listen2me/
+    ├── index.db          # SQLite for fast searching
+    ├── cache/            # Processed DataFrames
+    └── config.json       # App settings
+```
+
+#### Markdown File Structure
+
+**Note Files:**
+```markdown
+# Project Planning Discussion
+*Created: 2024-01-15T10:30:00Z*
+*Duration: 18m 45s*
+*Status: completed*
+*Immutable: true*
+
+## File References
+- **Audio Files:**
+  - [../audio/2024/01/2024-01-15T10-30-00Z_001.wav](../audio/2024/01/2024-01-15T10-30-00Z_001.wav)
+  - [../audio/2024/01/2024-01-15T10-30-00Z_002.wav](../audio/2024/01/2024-01-15T10-30-00Z_002.wav)
+- **Raw Transcription:** [../transcriptions/raw/2024-01-15T10-30-00Z.json](../transcriptions/raw/2024-01-15T10-30-00Z.json)
+- **Cleaned Transcription:** [../transcriptions/cleaned/2024-01-15T10-30-00Z.json](../transcriptions/cleaned/2024-01-15T10-30-00Z.json)
+- **Annotated Transcription:** [../transcriptions/annotated/2024-01-15T10-30-00Z.json](../transcriptions/annotated/2024-01-15T10-30-00Z.json)
+
+## Relationships
+- **Continuation of:** [Morning Standup](2024-01-15T09-00-00Z-morning-standup.md)
+- **Continued by:** [Planning Follow-up](2024-01-15T16-00-00Z-planning-followup.md)
+- **Related Notes:** [Budget Discussion](2024-01-15T14-22-00Z-budget-discussion.md)
+
+## Key Concepts
+- [Project Management](../../concepts/business/project-management.md)
+- [Software Quality](../../concepts/engineering/software/quality.md)
+- [Budgeting](../../concepts/business/budgeting.md)
+
+## Transcription
+### 10:30:15 - Project Management
+We need to think about the project planning. The timeline is getting tight and we should probably start documenting our approach.
+
+### 10:32:30 - Software Quality  
+The quality aspects are really important here. We can't just rush through this without proper testing.
+```
+
+**Concept Files:**
+```markdown
+# Project Management
+*Path: business/project-management*
+*Created: 2024-01-15T10:30:00Z*
+*Last Updated: 2024-01-15T14:22:00Z*
+
+## Description
+Planning and organizing projects from inception to completion.
+
+## Hierarchy
+- **Parent:** [Business](../business.md)
+- **Children:** 
+  - [Agile Management](agile-management.md)
+  - [Timeline Planning](timeline-planning.md)
+
+## Related Concepts
+- [Software Quality](../engineering/software/quality.md)
+- [Budgeting](budgeting.md)
+
+## Notes
+- [Project Planning Discussion](../../notes/2024/01/2024-01-15-project-planning.md)
+- [Sprint Review](../../notes/2024/01/2024-01-20-sprint-review.md)
+
+## Statistics
+- **First Mentioned:** 2024-01-15T10:30:00Z
+- **Total Mentions:** 12
+- **Weight:** 0.85
+```
+
+#### Runtime Storage
+* **Processing Cache**: Pandas DataFrames saved as Parquet in `.listen2me/cache/`
+* **Search Index**: SQLite database for fast concept/note relationships
+* **Audio Files**: WAV files organized by date, referenced by relative paths
+* **Git Integration**: Automatic commits after each note, with review workflow via branches
+
+#### Review Workflow
+1. **Note Completion**: App processes transcription and identifies concepts
+2. **Branch Creation**: Create `note-2024-01-15-project-planning` branch
+3. **File Generation**: Generate Markdown files and update concept hierarchy
+4. **Merge Request**: Create MR for human review of AI-generated content
+5. **Merge**: After approval, merge to main branch and update search index
 
 ## User Personas & Use Cases
 
@@ -160,6 +330,7 @@ transcription_df = pd.DataFrame(transcription_matrix,
 ### Navigation Commands
 - **"Listen 2 Me, show concepts"** - Display current key concepts being tracked
 - **"Listen 2 Me, open previous note"** - Load and display the last recorded note
+- **"Listen 2 Me, continue previous note"** - Create new note linked to previous one
 - **"Listen 2 Me, find [concept name]"** - Search for notes containing specific concept
 - **"Listen 2 Me, organize mode"** - Switch to organization/review mode (future feature)
 
@@ -168,11 +339,47 @@ transcription_df = pd.DataFrame(transcription_matrix,
 - **"Listen 2 Me, title this [custom title]"** - Set custom title for current note
 - **"Listen 2 Me, help"** - Show available commands
 
-### Command Recognition
+### Command Recognition & Mode Switching
 - Commands must start with "Listen 2 Me" wake phrase
 - 2-second timeout after wake phrase to execute command
 - If no valid command detected, return to normal recording mode
 - Commands work during recording without stopping the session
+
+## Operating Modes
+
+### Transcribe Mode (Default)
+**Behavior:** App is in continuous listening mode, transcribing everything said
+**Characteristics:**
+- Very "sticky" - stays in transcribe mode to avoid interruptions
+- All speech is processed as content to be transcribed
+- Background noise and conversations are filtered out but user speech is captured
+- Visual indicator: "🎙️ Recording..." or similar
+
+**Entering Transcribe Mode:**
+- Default mode when app starts
+- Automatically returns after command execution
+- Voice command: "Listen 2 Me, start recording"
+
+### Command Mode (Temporary)
+**Behavior:** App is waiting for a specific voice command
+**Characteristics:**
+- Triggered only by "Listen 2 Me" wake phrase
+- 2-second listening window for command recognition
+- If no valid command detected, returns to Transcribe Mode
+- Visual indicator: "⏳ Listening for command..." or similar
+
+**Command Mode Flow:**
+1. User says "Listen 2 Me"
+2. App responds with audio/visual feedback: "Command?"
+3. App waits 2 seconds for valid command
+4. If valid command: Execute and return to Transcribe Mode
+5. If invalid/no command: Return to Transcribe Mode immediately
+
+**Why This Design:**
+- Prevents accidental command triggering during natural speech
+- Ensures transcription is never interrupted unintentionally
+- Clear distinction between content and control interactions
+- Minimizes false positives from background conversations
 
 ## Implementation Phases
 
@@ -241,10 +448,30 @@ transcription_df = pd.DataFrame(transcription_matrix,
 4. Transcribing Screen 1d showing the concepts as they show up.
 5. Saving the updated global concept hierarchy, and per-note concepts, upon ending the note.
 
-### Phase 4: "Sprint" - Markdown + Git import/export
+### Phase 4: "Sprint" - Markdown + Git Integration (v0.4)
 **Goal:** Save all of the notes, key concepts, and relationships in a very human-digestible, iterative format.
 
-TODO fill out this phase
+**Features:**
+- Full Git repository integration with automatic commits
+- Markdown generation for notes and concepts with proper linking
+- Hierarchical file structure matching concept taxonomy
+- Review workflow with branch-based changes
+- Bidirectional sync: read existing Markdown files on startup
+- Conflict resolution for concurrent edits
+
+**Success Criteria:**
+- All notes and concepts saved as linked Markdown files
+- Git history preserves all changes with meaningful commit messages
+- Human can manually edit concept files and app reads changes
+- Review workflow catches AI transcription/annotation errors
+- Repository can be browsed and searched independently of app
+
+**Broken down to 6 deliverables:**
+1. **Git repository setup**: Initialize repo structure, create templates, setup .gitignore
+2. **Markdown generation**: Convert internal data structures to formatted Markdown with proper frontmatter and links
+3. **File organization**: Implement hierarchical directory structure based on concept taxonomy
+4. **Bidirectional sync**: Read existing Markdown files on startup, if requested, and blow away internal state. 
+5. **Review workflow**: Branch creation, file generation, merge request creation via Git hooks
 
 ### Phase 5: "Marathon" - Full Voice Control (v0.5)
 **Goal:** Complete hands-free operation
@@ -260,6 +487,323 @@ TODO fill out this phase
 - Can navigate previous notes using voice only
 - Data persists across sessions and can be searched
 
+## Voice Transcription Service Research
+
+### Option 1: OpenAI Whisper
+**Pros:**
+- High accuracy across multiple languages
+- Runs locally (no internet required after download)
+- Free and open source
+- Good performance on noisy audio
+- Real-time capable with optimizations
+
+**Cons:**
+- Requires significant local compute (GPU recommended)
+- Initial model download ~1GB
+- Latency can be 2-5 seconds for real-time processing
+- Resource intensive for continuous operation
+
+**Integration:** `openai-whisper` Python package, local model inference
+
+### Option 2: Google Cloud Speech-to-Text
+**Pros:**
+- Excellent accuracy and speed (<1 second latency)
+- Automatic punctuation and formatting
+- Streaming real-time transcription
+- Handles multiple speakers
+- Good noise cancellation
+
+**Cons:**
+- Requires internet connection
+- Costs ~$0.006 per 15 seconds of audio
+- Data sent to Google servers
+- API rate limits
+
+**Integration:** `google-cloud-speech` Python package, streaming API
+
+### Option 3: Azure Cognitive Services Speech
+**Pros:**
+- Very fast real-time transcription
+- Custom vocabulary support
+- Good accuracy in noisy environments
+- Automatic language detection
+- Reasonable pricing
+
+**Cons:**
+- Requires internet connection
+- Costs ~$1 per hour of audio
+- Microsoft ecosystem dependency
+- Less established than alternatives
+
+**Integration:** `azure-cognitiveservices-speech` Python package
+
+### Recommendation
+**Phase 1:** Start with OpenAI Whisper for offline capability and cost-effectiveness
+**Phase 2:** Add Google Cloud Speech as comparison option for speed/accuracy testing
+**Phase 3:** Implement hybrid approach - Whisper for offline, Google Cloud for online with better performance
+
+## UX Screen Mockups
+
+### Screen 1: Transcribing Screens
+
+#### Screen 1a: Audio Recording Status
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Listen 2 Me - Recording                                       [🎙️ REC 15:23] │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│ Audio Input: ████████████████████████████████████████████████████████████   │
+│             ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ │
+│                                                                             │
+│ Status: Recording...                                                        │
+│ Duration: 15:23                                                             │
+│ File Size: 142.5 MB                                                        │
+│ Audio Files: 3 segments                                                    │
+│                                                                             │
+│ Current File: 2024-01-15T10-30-00Z_003.wav                                │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ [P] Pause  [S] Stop & Save  [N] New Note  [H] Help                        │
+│ Say "Listen 2 Me" for voice commands                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Screen 1b: Live Transcription
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Listen 2 Me - Live Transcription                          [🎙️ REC 15:23] │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│ Live Transcription (Whisper):                                              │
+│ ┌─────────────────────────────────────────────────────────────────────────┐ │
+│ │ 15:20 um so like we need to uh think about the project planning you    │ │
+│ │       know and then there's the budget stuff we gotta figure out       │ │
+│ │                                                                         │ │
+│ │ 15:22 [processing...]                                                   │ │
+│ │                                                                         │ │
+│ │ 15:23 ▓ [listening...]                                                  │ │
+│ └─────────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│ Service: Whisper (local)                                                   │
+│ Latency: 2.3s avg                                                          │
+│ Confidence: 89% avg                                                        │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ [P] Pause  [S] Stop & Save  [R] Reprocess  [1a] Audio View               │
+│ Say "Listen 2 Me" for voice commands                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Screen 1c: Cleaned Transcription
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Listen 2 Me - Cleaned Transcription                       [🎙️ REC 15:23] │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│ Cleaned Transcription (Claude):                                            │
+│ ┌─────────────────────────────────────────────────────────────────────────┐ │
+│ │ 15:20 We need to think about the project planning. Then there's the    │ │
+│ │       budget we need to figure out.                                    │ │
+│ │                                                                         │ │
+│ │ 15:22 [processing batch...]                                             │ │
+│ │                                                                         │ │
+│ │ 15:23 [waiting for pause or 10s interval...]                           │ │
+│ └─────────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│ Service: Claude (API)                                                      │
+│ Batch Size: 127 words                                                      │
+│ Processing: Every 10s or on pause                                          │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ [P] Pause  [S] Stop & Save  [R] Reprocess  [1b] Raw View                 │
+│ Say "Listen 2 Me" for voice commands                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Screen 1d: Annotated Transcription
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Listen 2 Me - Annotated Transcription                     [🎙️ REC 15:23] │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│ Annotated Transcription (GPT-4):                                           │
+│ ┌─────────────────────────────────────────────────────────────────────────┐ │
+│ │ 15:20 We need to think about the project planning. Then there's the    │ │
+│ │       budget we need to figure out.                                    │ │
+│ │       [Project Management] [Budgeting]                                  │ │
+│ │                                                                         │ │
+│ │ 15:22 [processing concepts...]                                          │ │
+│ │                                                                         │ │
+│ │ 15:23 [waiting for cleaned transcription...]                           │ │
+│ └─────────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│ Service: GPT-4 (API)                                                       │
+│ Concepts Found: 2 new, 1 reused                                           │
+│ Global Concepts: 47 total                                                  │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ [P] Pause  [S] Stop & Save  [R] Reprocess  [1c] Cleaned View             │
+│ Say "Listen 2 Me" for voice commands                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Screen 1e: File References
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Listen 2 Me - File References                             [🎙️ REC 15:23] │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│ Audio Files:                                                               │
+│ ┌─────────────────────────────────────────────────────────────────────────┐ │
+│ │ 📁 2024-01-15T10-30-00Z_001.wav    [0:00-5:30]    52.3 MB    ✓ saved  │ │
+│ │ 📁 2024-01-15T10-30-00Z_002.wav    [5:30-12:15]   73.1 MB    ✓ saved  │ │
+│ │ 📁 2024-01-15T10-30-00Z_003.wav    [12:15-15:23]  42.7 MB    🔄 rec   │ │
+│ └─────────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│ Transcription Files:                                                       │
+│ ┌─────────────────────────────────────────────────────────────────────────┐ │
+│ │ 📄 raw/2024-01-15T10-30-00Z.json                          ⏳ pending    │ │
+│ │ 📄 cleaned/2024-01-15T10-30-00Z.json                      ⏳ pending    │ │
+│ │ 📄 annotated/2024-01-15T10-30-00Z.json                    ⏳ pending    │ │
+│ └─────────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│ Total Storage: 168.1 MB                                                    │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ [P] Pause  [S] Stop & Save  [R] Reprocess All  [1a] Audio View           │
+│ Say "Listen 2 Me" for voice commands                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Screen 2: Current Note Key Concepts
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Listen 2 Me - Current Note Concepts                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│ Key Concepts (by appearance):                                              │
+│ ┌─────────────────────────────────────────────────────────────────────────┐ │
+│ │                                                                         │ │
+│ │  Project Management  ████████████████████████████████ 0.92  [15:20]   │ │
+│ │                                                                         │ │
+│ │     Budgeting       ████████████████████████████       0.78  [15:20]   │ │
+│ │                                                                         │ │
+│ │   Software Quality  ████████████████████████           0.65  [15:22]   │ │
+│ │                                                                         │ │
+│ │    Timeline         ████████████████████               0.55  [15:21]   │ │
+│ │                                                                         │ │
+│ │  Resource Planning  ████████████████                   0.43  [15:23]   │ │
+│ │                                                                         │ │
+│ └─────────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│ Note: Project Planning Discussion                                          │
+│ Duration: 15:23                                                             │
+│ Concepts: 5 identified, 2 reused from previous notes                      │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ [1] Transcription  [3] All Notes  [4] All Concepts  [B] Back              │
+│ Say "Listen 2 Me" for voice commands                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Screen 3: All Notes
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Listen 2 Me - All Notes                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│ Recent Notes:                                                              │
+│ ┌─────────────────────────────────────────────────────────────────────────┐ │
+│ │ #1  Project Planning Discussion                         [15:23] 2024-01-15│ │
+│ │     [Project Management] [Budgeting] [Software Quality]           🔄 rec │ │
+│ │                                                                         │ │
+│ │ #2  Morning Standup                                     [08:45] 2024-01-15│ │
+│ │     [Agile] [Sprint Planning] [Team Coordination]             ✓ complete │ │
+│ │                                                                         │ │
+│ │ #3  Weekend Ideas                                       [22:15] 2024-01-14│ │
+│ │     [Innovation] [Side Projects] [Learning]                  ✓ complete │ │
+│ │                                                                         │ │
+│ │ #4  Client Call Follow-up                              [16:30] 2024-01-14│ │
+│ │     [Client Management] [Requirements] [Scope]              ✓ complete │ │
+│ │                                                                         │ │
+│ │ #5  Architecture Review                                [14:22] 2024-01-14│ │
+│ │     [System Design] [Technical Debt] [Performance]         ✓ complete │ │
+│ │                                                                         │ │
+│ └─────────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│ Total Notes: 47    This Week: 12    Today: 2                              │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ [1] Transcription  [2] Concepts  [4] All Concepts  [#] Open Note          │
+│ Say "Listen 2 Me, open note #3" for voice commands                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Screen 4a: Top Key Concepts
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Listen 2 Me - Top Key Concepts                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│ Most Referenced Concepts:                                                  │
+│ ┌─────────────────────────────────────────────────────────────────────────┐ │
+│ │ #1  Project Management                  ████████████████████ 47 mentions│ │
+│ │     Planning and organizing projects from inception to completion        │ │
+│ │                                                                         │ │
+│ │ #2  Software Quality                    ████████████████████ 34 mentions│ │
+│ │     Ensuring code meets standards and requirements                      │ │
+│ │                                                                         │ │
+│ │ #3  Client Management                   ████████████████████ 28 mentions│ │
+│ │     Building and maintaining client relationships                       │ │
+│ │                                                                         │ │
+│ │ #4  System Design                       ████████████████████ 22 mentions│ │
+│ │     Architectural decisions and technical planning                      │ │
+│ │                                                                         │ │
+│ │ #5  Budgeting                          ████████████████████ 19 mentions│ │
+│ │     Financial planning and cost management                              │ │
+│ │                                                                         │ │
+│ └─────────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│ Total Concepts: 127    Active: 89    This Week: 23                        │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ [3] All Notes  [4b] Hierarchy  [#] Open Concept  [S] Search               │
+│ Say "Listen 2 Me, open concept #1" for voice commands                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Screen 4b: Concept Hierarchy
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Listen 2 Me - Concept Hierarchy                                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│ Business/                                                                  │
+│ ┌─────────────────────────────────────────────────────────────────────────┐ │
+│ │ ├── Project Management          [47 mentions]                          │ │
+│ │ │   ├── Agile Management        [12 mentions]                          │ │
+│ │ │   ├── Timeline Planning       [8 mentions]                           │ │
+│ │ │   └── Resource Planning       [5 mentions]                           │ │
+│ │ │                                                                       │ │
+│ │ ├── Client Management           [28 mentions]                          │ │
+│ │ │   ├── Requirements Gathering  [15 mentions]                          │ │
+│ │ │   └── Scope Management        [9 mentions]                           │ │
+│ │ │                                                                       │ │
+│ │ └── Budgeting                   [19 mentions]                          │ │
+│ │     ├── Cost Estimation        [7 mentions]                           │ │
+│ │     └── Financial Planning     [4 mentions]                           │ │
+│ └─────────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│ Engineering/                                                               │
+│ ├── Software Quality [34]  ├── System Design [22]  ├── Performance [15]    │
+│                                                                             │
+│ Level: 1    Path: Business/    Children: 3    Notes: 67                   │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ [4a] Top Concepts  [↑] Parent  [↓] Children  [Enter] Expand               │
+│ Say "Listen 2 Me, open engineering" for voice commands                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 # APPENDIX
 Raw notes as I work on this PRD. Do not touch this section.
