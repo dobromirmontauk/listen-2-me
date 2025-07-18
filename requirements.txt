@@ -7,11 +7,12 @@ scipy>=1.7.0
 # openai-whisper>=20230314
 # torch>=1.13.0
 
-# Google backend (for later phases)
-# google-cloud-speech>=2.16.0
-# google-auth>=2.10.0
+# Google Speech-to-Text backend
+google-cloud-speech>=2.16.0
+google-auth>=2.10.0
 
 # UI and utilities
 rich>=12.5.0
 click>=8.1.0
 pydantic>=1.10.0
+pyyaml>=6.0.0

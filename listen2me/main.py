@@ -6,48 +6,52 @@ import logging
 from pathlib import Path
 
 from .ui.simple_transcription_screen import SimpleTranscriptionScreen
+from .config import get_config
 
 
-def setup_logging(level: str = "INFO") -> None:
-    """Set up logging configuration."""
+def setup_logging(config, level: str = "INFO") -> None:
+    """Set up logging configuration from YAML config."""
+    # Get log file path from config
+    log_file_path = config.get('logging.file_path', 'data/logs/listen2me.log')
+    console_output = config.get('logging.console_output', True)
+    
     # Create logs directory if it doesn't exist
     import os
-    os.makedirs('logs', exist_ok=True)
+    log_dir = Path(log_file_path).parent
+    log_dir.mkdir(parents=True, exist_ok=True)
     
-    # Configure logging with both file and console handlers
-    logging.basicConfig(
-        level=getattr(logging, level.upper()),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            # File handler - always write to file
-            logging.FileHandler('logs/listen2me.log'),
-            # Console handler - only show warnings and above to keep console clean
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
+    # Set up handlers
+    handlers = []
     
-    # Set console handler to only show warnings and above
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.WARNING)
-    
-    # Create a more detailed file handler
-    file_handler = logging.FileHandler('logs/listen2me.log')
+    # File handler - always write to file
+    file_handler = logging.FileHandler(log_file_path)
     file_handler.setLevel(logging.DEBUG)
     file_formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
     )
     file_handler.setFormatter(file_formatter)
+    handlers.append(file_handler)
     
-    # Clear existing handlers and add our custom ones
+    # Console handler - only if enabled in config
+    if console_output:
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(logging.WARNING)  # Only show warnings and above on console
+        console_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        console_handler.setFormatter(console_formatter)
+        handlers.append(console_handler)
+    
+    # Configure root logger
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
-    root_logger.addHandler(file_handler)
-    root_logger.addHandler(console_handler)
+    root_logger.setLevel(getattr(logging, level.upper()))
+    for handler in handlers:
+        root_logger.addHandler(handler)
     
     # Log startup
     logger = logging.getLogger(__name__)
     logger.info("="*50)
     logger.info("Listen2Me application starting up")
+    logger.info(f"Log file: {log_file_path}")
     logger.info(f"Log level set to: {level}")
     logger.info("="*50)
 
@@ -60,10 +64,9 @@ def main() -> None:
     )
     
     parser.add_argument(
-        "--data-dir",
+        "--config",
         type=str,
-        default="./data",
-        help="Directory to store audio files and session data (default: ./data)"
+        help="Path to configuration YAML file (default: looks for listen2me.yaml)"
     )
     
     parser.add_argument(
@@ -74,7 +77,6 @@ def main() -> None:
         help="Set logging level (default: INFO)"
     )
     
-    
     parser.add_argument(
         "--version",
         action="version",
@@ -83,23 +85,28 @@ def main() -> None:
     
     args = parser.parse_args()
     
-    # Set up logging
-    setup_logging(args.log_level)
-    
-    # Create data directory if it doesn't exist
-    data_dir = Path(args.data_dir)
-    data_dir.mkdir(exist_ok=True)
-    
-    print("🎙️  Listen2Me - Real-time Voice Transcription")
-    print("=" * 50)
-    print(f"Data directory: {data_dir.absolute()}")
-    print(f"Log level: {args.log_level}")
-    print("=" * 50)
-    
     try:
+        # Load configuration first to set up logging properly
+        if args.config:
+            from .config import reload_config
+            config = reload_config(args.config)
+        else:
+            config = get_config()
+        
+        # Set up logging (override config with command line if specified)
+        log_level = args.log_level if args.log_level != "INFO" else config.get('logging.level', 'INFO')
+        setup_logging(config, log_level)
+        
+        print("🎙️  Listen2Me - Real-time Voice Transcription")
+        print("=" * 50)
+        print(f"Configuration: {config.config_file}")
+        print(f"Data directory: {config.get_data_directory()}")
+        print(f"Log level: {log_level}")
+        print("=" * 50)
+        
         # Initialize and run transcription screen
         print("Starting Listen2Me interface...")
-        screen = SimpleTranscriptionScreen(str(data_dir))
+        screen = SimpleTranscriptionScreen(args.config)
         screen.run()
         
     except KeyboardInterrupt:

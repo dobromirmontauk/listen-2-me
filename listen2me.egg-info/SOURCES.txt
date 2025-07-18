@@ -11,8 +11,14 @@ listen2me.egg-info/top_level.txt
 listen2me/audio/__init__.py
 listen2me/audio/capture.py
 listen2me/config/__init__.py
+listen2me/config_old/__init__.py
+listen2me/config_old/transcription.py
 listen2me/storage/__init__.py
 listen2me/storage/file_manager.py
+listen2me/transcription/__init__.py
+listen2me/transcription/base.py
+listen2me/transcription/engine.py
+listen2me/transcription/google_backend.py
 listen2me/ui/__init__.py
 listen2me/ui/simple_transcription_screen.py
 tests/__init__.py
