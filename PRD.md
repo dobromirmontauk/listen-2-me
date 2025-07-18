@@ -177,7 +177,7 @@ transcription_df = pd.DataFrame(transcription_matrix,
 ## Implementation Phases
 
 ### Phase 1: "Crawl" - Basic Recording (v0.1)
-**Goal:** Prove core concept with minimal viable functionality
+**Goal:** Prove core technical feasibility with minimal viable functionality
 
 **Features:**
 - Simple Python script that records audio to WAV file
@@ -190,7 +190,36 @@ transcription_df = pd.DataFrame(transcription_matrix,
 - Transcription accuracy >80% in quiet environment
 - Terminal shows real-time text output
 
-### Phase 2: "Walk" - Key Concept Extraction (v0.2)
+**Broken down to 4 deliverables:**
+1. Enable microphone, recording, and saving to file (with regular checkpoints in case things crash). Clean up resources when finished / crashed.
+2. First transcribing screen with "audio information" only
+3. Real-time transcritption generation, with at least 2 different backend providers (for comparison). Basic statistics gathered from each, e.g. time to response.
+4. Second transcribing screen with "real-time transcription" output.
+
+### Phase 2: "Walk" -- Cleaned Up Transcription (v0.2)
+**Goal:**: Use AI to clean up otherwise messy transcriptions that would be hard for humans to follow directly.
+
+**Features:**
+- LLM integration (OpenAI GPT-4 and Claude) for transcription cleanup.
+- Screens to visualize what is happening.
+- Batching of transcription as there is "enough" to go cleanup. 
+- Removes filler words, formats properly, adds punctuation.
+- Handles long pauses.
+- Maps cleaned up version back to the original transcription.
+
+**Success Criteria:**
+- Transcription cleanup runs continuously.
+- Cleanup doesn't change the input too drastically.
+- Doesn't duplicate content, mix up ordering, etc.
+- Mapping is roughly correct.
+
+**Broken down to X deliverables:**
+1. LLM API integration set up to 2 providers (Claude + OpenAI). Successful request/responses processed.
+2. Prompts generated for the "cleanup" phase. Explain what is being put in (raw transcription), and how we want it cleaned up, and especially that we want to maintain fidelity to the original.
+3. Transcribing screen 1c with the "delayed, cleaned-up transcription"
+4. Process that cleans up every 10s, or if there is an audio pause for >2s, or if the entire note is paused/saved. 
+
+### Phase 3: "Run" - Key Concept Extraction (v0.3)
 **Goal:** Add AI-powered concept identification
 
 **Features:**
@@ -204,7 +233,20 @@ transcription_df = pd.DataFrame(transcription_matrix,
 - Concepts are human-readable and relevant
 - Can reuse concepts from previous sessions
 
-### Phase 3: "Run" - Full Voice Control (v0.3)
+**Broken down to X deliverables:**
+1. Data structure for storing our key concepts, both global and note-specific ones.
+2. Data structure for the model explaining how we want the key concepts/timestamps (or sentence indices?) identified, so that it returns data in a format that we can ingest easily.
+3. Clean prompts explaining what we want from the model. Prompt should include the global "key concepts" that the app is aware of so far, as well as key-concepts already identified in this note. Then it should include the "not yet annotated" transcription, and maybe the previous ~3 "blocks" of the note (where a block is a contiguous note on the same Key Concept). 
+3. Integration with 2 LLMs (Claude + OpenAI) for sending the prompts and getting the key concepts back, in the usable API format.
+4. Transcribing Screen 1d showing the concepts as they show up.
+5. Saving the updated global concept hierarchy, and per-note concepts, upon ending the note.
+
+### Phase 4: "Sprint" - Markdown + Git import/export
+**Goal:** Save all of the notes, key concepts, and relationships in a very human-digestible, iterative format.
+
+TODO fill out this phase
+
+### Phase 5: "Marathon" - Full Voice Control (v0.5)
 **Goal:** Complete hands-free operation
 
 **Features:**
@@ -212,9 +254,9 @@ transcription_df = pd.DataFrame(transcription_matrix,
 - Session management (start/stop/pause)
 - Note organization and retrieval
 - Persistent storage with SQLite indexing
+- All secondary screens implemented
 
 **Success Criteria:**
-- All core voice commands work reliably
 - Can navigate previous notes using voice only
 - Data persists across sessions and can be searched
 
@@ -263,6 +305,7 @@ Raw notes as I work on this PRD. Do not touch this section.
     * When saving notes, key concepts, etc it should write back to the Markdown format in the Git repo.
 * Review flow.
     * After taking a note, and having the app generate the transcriptions / key concepts, we'll want to save them. This should kick off a new git branch and a Merge Request. That way, if the app is messing up major parts of transcription / annotation / or creating key concepts, they can be caught before they are fully merged back into the "main branch".
+
 
 
 # FUTURE WORK
