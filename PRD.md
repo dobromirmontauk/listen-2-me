@@ -805,13 +805,41 @@ Planning and organizing projects from inception to completion.
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+## UX Flow Diagram
+
+The following diagram shows the navigation flow between screens and available commands:
+
+![UX Flow Diagram](ux-flow.png)
+
+**Legend:**
+- **Solid arrows** (→): Voice commands or major actions
+- **Dotted arrows** (-.->): Keyboard shortcuts or button clicks
+- **Red boxes**: Recording/transcription screens (Screen 1a-1e)
+- **Green boxes**: Concept-related screens (Screen 2, 4a, 4b)
+- **Blue boxes**: Note management screens (Screen 3)
+- **Yellow boxes**: Command mode
+- **Purple boxes**: Temporary states
+
+**Key Navigation Patterns:**
+1. **Screen 1 (Recording)**: Cycle through 5 views with keyboard shortcuts
+2. **Voice Commands**: Available from any screen, trigger command mode
+3. **Global Actions**: New note, pause/resume, stop recording work everywhere
+4. **Hierarchical Flow**: Concepts → Notes → Recording in logical progression
+
 # APPENDIX
 Raw notes as I work on this PRD. Do not touch this section.
 
-**REMAINING ITEMS:**
-* We should add a Mermaid graph of the UX flows (based on voice commands).
-    * What screens let you go to other screens
-    * What commands/buttons take you to other screens (maybe labeled edges?)
+**COMPLETED ITEMS (now in main PRD):**
+✅ 3 versions of text transcription → "3-Version Transcription Pipeline" section
+✅ Transcribe mode and command mode → "Operating Modes" section  
+✅ UX screen mockups with ASCII art → "UX Screen Mockups" section
+✅ Hierarchical key concepts like Wikipedia → "Hierarchical Key Concept Structure" section
+✅ Markdown files stored in Git → "Git + Markdown Primary Storage" section
+✅ Review flow → "Review Workflow" section
+✅ Mermaid graph of UX flows → "UX Flow Diagram" section
+
+**ALL APPENDIX ITEMS COMPLETED!** 🎉
+
 
 
 

@@ -1,0 +1,86 @@
+graph TD
+    Start([App Launch]) --> S1a[Screen 1a: Audio Recording]
+    
+    %% Screen 1 Navigation (Transcribing Screens)
+    S1a -.->|1b or Tab| S1b[Screen 1b: Live Transcription]
+    S1b -.->|1c or Tab| S1c[Screen 1c: Cleaned Transcription]
+    S1c -.->|1d or Tab| S1d[Screen 1d: Annotated Transcription]
+    S1d -.->|1e or Tab| S1e[Screen 1e: File References]
+    S1e -.->|1a or Tab| S1a
+    
+    %% Voice Commands from any Screen 1
+    S1a -->|Voice: show concepts| S2[Screen 2: Current Note Concepts]
+    S1b -->|Voice: show concepts| S2
+    S1c -->|Voice: show concepts| S2
+    S1d -->|Voice: show concepts| S2
+    S1e -->|Voice: show concepts| S2
+    
+    %% Screen 2 Navigation
+    S2 -.->|1 or Back| S1a
+    S2 -.->|3 or keyboard| S3[Screen 3: All Notes]
+    S2 -.->|4 or keyboard| S4a[Screen 4a: Top Concepts]
+    
+    %% Screen 3 Navigation
+    S3 -.->|1 or Back| S1a
+    S3 -.->|2 or keyboard| S2
+    S3 -.->|4 or keyboard| S4a
+    S3 -->|Voice: open note| S1a
+    S3 -->|Voice: continue note| NewNote[New Note Created]
+    NewNote --> S1a
+    
+    %% Screen 4a Navigation
+    S4a -.->|3 or keyboard| S3
+    S4a -.->|4b or keyboard| S4b[Screen 4b: Concept Hierarchy]
+    S4a -->|Voice: open concept| ConceptView[Concept Detail View]
+    ConceptView -.->|Back| S4a
+    
+    %% Screen 4b Navigation
+    S4b -.->|4a or keyboard| S4a
+    S4b -.->|↑ Parent| S4b
+    S4b -.->|↓ Children| S4b
+    S4b -->|Voice: open concept| ConceptView
+    
+    %% Global Voice Commands (from any screen)
+    S1a -->|Voice: new note| NewNote2[New Note Created]
+    S2 -->|Voice: new note| NewNote2
+    S3 -->|Voice: new note| NewNote2
+    S4a -->|Voice: new note| NewNote2
+    S4b -->|Voice: new note| NewNote2
+    NewNote2 --> S1a
+    
+    %% Recording Controls (Screen 1 only)
+    S1a -->|P or Voice: pause| Paused[Recording Paused]
+    S1b -->|P or Voice: pause| Paused
+    S1c -->|P or Voice: pause| Paused
+    S1d -->|P or Voice: pause| Paused
+    S1e -->|P or Voice: pause| Paused
+    Paused -->|P or Voice: resume| S1a
+    
+    S1a -->|S or Voice: stop| Stopped[Note Saved]
+    S1b -->|S or Voice: stop| Stopped
+    S1c -->|S or Voice: stop| Stopped
+    S1d -->|S or Voice: stop| Stopped
+    S1e -->|S or Voice: stop| Stopped
+    Stopped --> S3
+    
+    %% Command Mode Flow
+    S1a -->|Wake phrase| CommandMode[Command Mode: 2s timeout]
+    S2 -->|Wake phrase| CommandMode
+    S3 -->|Wake phrase| CommandMode
+    S4a -->|Wake phrase| CommandMode
+    S4b -->|Wake phrase| CommandMode
+    CommandMode -->|Valid Command| ExecuteCommand[Execute & Return]
+    CommandMode -->|Invalid/Timeout| ReturnToScreen[Return to Previous Screen]
+    
+    %% Styling
+    classDef recording fill:#ffcccc,stroke:#ff6666,stroke-width:2px
+    classDef concepts fill:#ccffcc,stroke:#66ff66,stroke-width:2px
+    classDef notes fill:#ccccff,stroke:#6666ff,stroke-width:2px
+    classDef command fill:#ffffcc,stroke:#ffff66,stroke-width:2px
+    classDef state fill:#ffccff,stroke:#ff66ff,stroke-width:2px
+    
+    class S1a,S1b,S1c,S1d,S1e recording
+    class S2,S4a,S4b concepts
+    class S3 notes
+    class CommandMode command
+    class Paused,Stopped,NewNote,NewNote2 state
