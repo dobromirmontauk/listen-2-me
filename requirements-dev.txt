@@ -1,0 +1,16 @@
+# Testing framework
+pytest>=7.1.0
+pytest-cov>=4.0.0
+pytest-mock>=3.10.0
+pytest-asyncio>=0.21.0
+pytest-xdist>=3.0.0
+
+# Code quality
+black>=22.0.0
+flake8>=5.0.0
+isort>=5.10.0
+mypy>=1.0.0
+
+# Development tools
+pre-commit>=2.20.0
+tox>=4.0.0

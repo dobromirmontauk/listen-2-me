@@ -1,0 +1,2 @@
+[console_scripts]
+listen2me = listen2me.main:main

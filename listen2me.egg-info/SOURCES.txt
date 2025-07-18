@@ -1,0 +1,15 @@
+setup.py
+listen2me/__init__.py
+listen2me.egg-info/PKG-INFO
+listen2me.egg-info/SOURCES.txt
+listen2me.egg-info/dependency_links.txt
+listen2me.egg-info/entry_points.txt
+listen2me.egg-info/requires.txt
+listen2me.egg-info/top_level.txt
+listen2me/audio/__init__.py
+listen2me/audio/capture.py
+listen2me/config/__init__.py
+listen2me/storage/__init__.py
+listen2me/storage/file_manager.py
+tests/__init__.py
+tests/conftest.py
