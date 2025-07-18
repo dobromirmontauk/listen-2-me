@@ -807,48 +807,12 @@ Planning and organizing projects from inception to completion.
 
 # APPENDIX
 Raw notes as I work on this PRD. Do not touch this section.
-* We should be saving 3 versions of the text transcription
-    * Raw transcription from the service
-    * "Cleaned up" transcription, from an LLM call, that puts in proper punctuation/removes filler words/etc.
-    * Annotated transcription, with the key concepts extracted.
-    * We may want to "re-run" the processing steps of audio -> transcription -> cleanup -> annotated. So we want to save the outputs of each step, with "pointers" to what section of the previous one the "processed" one refers to.
-    * We need a good data structure that takes this requirements into account.
-* We probably want a "transcribe mode" and a "command mode"
-    * If I say "Listen 2 Me", it should say "Waiting for command"
-    * Commands can only be issued in "command mode". This is to minimize accidentally going into "Commands" while transcribing. Transcribing should be VERY sticky, because it would be super annoying if the app kept trying to do other things instead of transcribe.
+
+**REMAINING ITEMS:**
 * We should add a Mermaid graph of the UX flows (based on voice commands).
     * What screens let you go to other screens
     * What commands/buttons take you to other screens (maybe labeled edges?)
-    * 
-* Rough user experience screens that we want. For each of these, we should create a simple visual mockup. For the Markdown PRD, it can be using ASCII art.
-    * Screen 1: Transcribing screens
-        * 1a: Shows recording stats + a "wave function" showing the audio input, so we have a visual feedback if audio is being picked up. Includes a timer of how much has been captured so far, and a MB file size?
-        * 1b: Shows live transcription, as it gets generated from the backend.
-        * 1c: Shows cleaned up transcription, which gets batched and processed every ~10s or so.
-        * 1d: Shows "annotated" transcription, which has the key concepts attached.
-        * 1e: Shows list of raw audio files that were captured, with paths to disk
-        * These screens should still work if data is missing; e.g. if we managed to record audio, but not run transcription / cleanup / etc, they should simply say "no data".
-        * They should have an option to "rerun step" that reprocesses that step. This will be useful as we change our code and want to see what the latest version does against the previously saved data.
-        * Each screen should have a "pause/start" button (also with voice control) and "save" button (also with voice control)
-    * Screen 2: current note key concepts screen
-        * Word-cloud like approach to key concepts. They should be listed in order of when they showed up on the conversation. We should have a 'weight' float for how much the key concept has showed up in the conversation.
-        * Display: key concept (<5 words), timestamp (first occurence), float representing weight
-    * Screen 3: all notes screen
-        * List of notes, with titles if they were given some. Date/time when the note was taken. Top 3 key concepts of the note. Assign a number to the note so they are easy to refer to verbally like "Open note #3" or "Open yesterday's note"
-    * Screen 4: All key concepts screen
-        * 4a: List the top 10 key concepts (the ones with the most content). Have them numbered so it is easy to refer to them, e.g. "Open #1"
-        * 4b: List key concepts at a particular "level" from the hierarchy. This will make it so we can easily "open" that concept and see what other key concepts (or notes) are below it.
-* Key concepts should be a hierarchical, linked set of nodes, like Wikipedia
-    * The App should keep track of the taxonomy of key concepts. E.g. "History > World History > World War II > Western Front" or "Engineering > Software > Quality > Factoring > Design Patterns"
-    * Each key concept can have one parent, multiple children, and infinite links to other key concepts. Each key concept has a unique ID, separate from it's English definition, to allow for later renaming of the key concept (without losing the links).
-    * Parents, children, and links will be able to be changed. 
-* To keep things human-readable and a version-history, the primary source of data will be markdown files stored in Git. 
-    * Files should link to each other using hyperlinks.
-    * Filepaths should be used for parent/children nodes.
-    * Our app should read-in all of the files and convert them into internal data representations for faster processing.
-    * When saving notes, key concepts, etc it should write back to the Markdown format in the Git repo.
-* Review flow.
-    * After taking a note, and having the app generate the transcriptions / key concepts, we'll want to save them. This should kick off a new git branch and a Merge Request. That way, if the app is messing up major parts of transcription / annotation / or creating key concepts, they can be caught before they are fully merged back into the "main branch".
+
 
 
 
