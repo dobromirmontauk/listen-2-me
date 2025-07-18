@@ -1,5 +1,7 @@
+README.md
 setup.py
 listen2me/__init__.py
+listen2me/main.py
 listen2me.egg-info/PKG-INFO
 listen2me.egg-info/SOURCES.txt
 listen2me.egg-info/dependency_links.txt
@@ -11,5 +13,9 @@ listen2me/audio/capture.py
 listen2me/config/__init__.py
 listen2me/storage/__init__.py
 listen2me/storage/file_manager.py
+listen2me/ui/__init__.py
+listen2me/ui/simple_transcription_screen.py
 tests/__init__.py
 tests/conftest.py
+tests/hardware/__init__.py
+tests/hardware/test_real_audio_hardware.py

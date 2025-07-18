@@ -8,6 +8,7 @@ import termios
 import tty
 from datetime import datetime
 from typing import Optional
+from dataclasses import dataclass
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -16,10 +17,22 @@ from rich.align import Align
 
 from ..audio.capture import AudioCapture
 from ..storage.file_manager import FileManager, SessionInfo
-from .transcription_screen import TranscriptionStatus
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TranscriptionStatus:
+    """Status information for transcription session."""
+    session_id: Optional[str] = None
+    is_recording: bool = False
+    is_transcribing: bool = False
+    duration_seconds: float = 0.0
+    total_chunks: int = 0
+    chunks_processed: int = 0
+    peak_level: float = 0.0
+    current_text: str = ""
 
 
 class SimpleTranscriptionScreen:
@@ -177,27 +190,18 @@ class SimpleTranscriptionScreen:
     def _get_user_input(self) -> Optional[str]:
         """Get user input in a way that works in all terminals."""
         try:
-            # Try single keypress first (may not work in all terminals)
             if sys.platform != 'win32':
-                # Check if we can use raw mode
-                try:
-                    old_settings = termios.tcgetattr(sys.stdin)
-                    # If we get here, termios works - try single keypress
-                    if select.select([sys.stdin], [], [], 0.0)[0]:
-                        tty.setraw(sys.stdin.fileno())
-                        try:
-                            key = sys.stdin.read(1)
-                            logger.debug(f"Single key pressed: '{key}' (ord: {ord(key)})")
-                            return key.lower()
-                        finally:
-                            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
-                except (OSError, termios.error):
-                    # Raw mode not supported - fall back to line input
-                    logger.debug("Raw mode not supported, using line input")
-                    if select.select([sys.stdin], [], [], 0.0)[0]:
+                # Always check if input is available first (non-blocking)
+                if select.select([sys.stdin], [], [], 0.0)[0]:
+                    # Input is available, try to read it
+                    try:
+                        # Try reading a line and return first character
                         line = sys.stdin.readline().strip().lower()
                         logger.debug(f"Line input: '{line}'")
-                        return line[:1] if line else None  # Return first character only
+                        return line[:1] if line else None
+                    except Exception as e:
+                        logger.debug(f"Error reading input line: {e}")
+                        return None
             else:
                 # Windows - single character input
                 import msvcrt
@@ -218,7 +222,10 @@ class SimpleTranscriptionScreen:
         self.console.print("The screen will update automatically while recording.\n")
         
         try:
+            loop_count = 0
             while self.running:
+                loop_count += 1
+                
                 # Update status
                 self.update_status_from_audio()
                 
@@ -242,6 +249,10 @@ class SimpleTranscriptionScreen:
                     
                     # Small delay to show the result
                     time.sleep(1)
+                
+                # Debug logging every 10 cycles
+                if loop_count % 10 == 0:
+                    logger.debug(f"Simple mode loop cycle {loop_count}, recording: {self.status.is_recording}")
                 
                 # Update every 0.5 seconds for smooth real-time display
                 time.sleep(0.5)

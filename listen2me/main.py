@@ -5,7 +5,6 @@ import argparse
 import logging
 from pathlib import Path
 
-from .ui.transcription_screen import TranscriptionScreen
 from .ui.simple_transcription_screen import SimpleTranscriptionScreen
 
 
@@ -57,7 +56,7 @@ def main() -> None:
     """Main entry point for Listen2Me application."""
     parser = argparse.ArgumentParser(
         description="Listen2Me - Real-time voice transcription",
-        epilog="Press SPACE to start/stop recording, 'q' to quit"
+        epilog="Commands: 1=Start recording, 2=Stop recording, 3=Reset session, q=Quit"
     )
     
     parser.add_argument(
@@ -75,11 +74,6 @@ def main() -> None:
         help="Set logging level (default: INFO)"
     )
     
-    parser.add_argument(
-        "--simple",
-        action="store_true",
-        help="Use simple text-based interface instead of real-time display"
-    )
     
     parser.add_argument(
         "--version",
@@ -104,13 +98,8 @@ def main() -> None:
     
     try:
         # Initialize and run transcription screen
-        if args.simple:
-            print("Using simple text-based interface...")
-            screen = SimpleTranscriptionScreen(str(data_dir))
-        else:
-            print("Using real-time display interface...")
-            screen = TranscriptionScreen(str(data_dir))
-        
+        print("Starting Listen2Me interface...")
+        screen = SimpleTranscriptionScreen(str(data_dir))
         screen.run()
         
     except KeyboardInterrupt:
