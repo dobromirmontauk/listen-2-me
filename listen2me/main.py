@@ -78,6 +78,31 @@ def main() -> None:
     )
     
     parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="Run in automatic mode: start recording, record for specified duration, then stop and exit"
+    )
+    
+    parser.add_argument(
+        "--duration",
+        type=int,
+        default=10,
+        help="Duration in seconds for auto mode recording (default: 10)"
+    )
+    
+    parser.add_argument(
+        "--batch-window",
+        type=int,
+        help="Batch transcription window duration in seconds (overrides config)"
+    )
+    
+    parser.add_argument(
+        "--batch-interval",
+        type=int,
+        help="Batch transcription interval in seconds (overrides config)"
+    )
+    
+    parser.add_argument(
         "--version",
         action="version",
         version="Listen2Me v0.1.0 - Phase 1"
@@ -97,17 +122,38 @@ def main() -> None:
         log_level = args.log_level if args.log_level != "INFO" else config.get('logging.level', 'INFO')
         setup_logging(config, log_level)
         
-        print("🎙️  Listen2Me - Real-time Voice Transcription")
-        print("=" * 50)
-        print(f"Configuration: {config.config_file}")
-        print(f"Data directory: {config.get_data_directory()}")
-        print(f"Log level: {log_level}")
-        print("=" * 50)
-        
-        # Initialize and run transcription screen
-        print("Starting Listen2Me interface...")
-        screen = SimpleTranscriptionScreen(args.config)
-        screen.run()
+        if args.auto:
+            # Auto mode: automated recording for testing
+            print("🤖 Listen2Me - Auto Mode")
+            print("=" * 50)
+            print(f"Configuration: {config.config_file}")
+            print(f"Data directory: {config.get_data_directory()}")
+            print(f"Recording duration: {args.duration} seconds")
+            print(f"Log level: {log_level}")
+            print("=" * 50)
+            
+            # Run auto mode
+            from .auto_mode import run_auto_mode
+            batch_overrides = {}
+            if args.batch_window:
+                batch_overrides['window_duration_seconds'] = args.batch_window
+            if args.batch_interval:
+                batch_overrides['interval_seconds'] = args.batch_interval
+            
+            run_auto_mode(args.config, args.duration, batch_overrides)
+        else:
+            # Interactive mode
+            print("🎙️  Listen2Me - Real-time Voice Transcription")
+            print("=" * 50)
+            print(f"Configuration: {config.config_file}")
+            print(f"Data directory: {config.get_data_directory()}")
+            print(f"Log level: {log_level}")
+            print("=" * 50)
+            
+            # Initialize and run transcription screen
+            print("Starting Listen2Me interface...")
+            screen = SimpleTranscriptionScreen(args.config)
+            screen.run()
         
     except KeyboardInterrupt:
         print("\n👋 Goodbye!")

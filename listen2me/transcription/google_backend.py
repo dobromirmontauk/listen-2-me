@@ -7,7 +7,8 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 import wave
 
-from .base import AbstractTranscriptionBackend, TranscriptionResult
+from .base import AbstractTranscriptionBackend
+from ..models.transcription import TranscriptionResult
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,12 @@ class GoogleSpeechBackend(AbstractTranscriptionBackend):
         logger.info("Google Speech-to-Text backend initialized successfully")
         return True
     
+    def get_display_info(self) -> str:
+        """Get display information for Google backend."""
+        if self.project_id:
+            return f" (Project: {self.project_id})"
+        return ""
+    
     def transcribe_chunk(self, audio_chunk: bytes, sample_rate: int = 16000) -> TranscriptionResult:
         """Transcribe audio chunk using Google Speech-to-Text."""
         start_time = time.time()
@@ -114,7 +121,7 @@ class GoogleSpeechBackend(AbstractTranscriptionBackend):
             if not response.results:
                 # No speech detected
                 result = TranscriptionResult(
-                    text="",
+                    text="[NO_SPEECH_DETECTED]",
                     confidence=0.0,
                     processing_time=processing_time,
                     timestamp=datetime.now(),

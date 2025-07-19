@@ -3,12 +3,13 @@
 import time
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor, Future
+from concurrent.futures import ThreadPoolExecutor
 from queue import Queue, Empty
 from typing import List, Dict, Any, Optional, Callable
 from datetime import datetime
 
-from .base import AbstractTranscriptionBackend, TranscriptionResult
+from .base import AbstractTranscriptionBackend
+from ..models.transcription import TranscriptionResult
 
 logger = logging.getLogger(__name__)
 
@@ -320,6 +321,6 @@ class TranscriptionEngine:
             raise RuntimeError("Failed to initialize transcription engine")
         return self
     
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, _exc_type, _exc_val, _exc_tb):
         """Context manager exit."""
         self.cleanup()

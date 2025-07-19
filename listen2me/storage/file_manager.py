@@ -9,22 +9,13 @@ import string
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass, asdict
+from dataclasses import asdict
+from ..models.session import SessionInfo
 
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class SessionInfo:
-    """Information about a recording session."""
-    session_id: str
-    start_time: datetime
-    duration_seconds: float
-    audio_file: str
-    file_size_bytes: int
-    sample_rate: int
-    total_chunks: int
 
 
 class FileManager:

@@ -1,26 +1,13 @@
 """Abstract base classes for transcription backends."""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from datetime import datetime
 from typing import Dict, Any, Optional
+from datetime import datetime
 import logging
 
+from ..models.transcription import TranscriptionResult
+
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class TranscriptionResult:
-    """Result of a transcription operation."""
-    text: str
-    confidence: float
-    processing_time: float
-    timestamp: datetime
-    service: str
-    language: str = "en-US"
-    alternatives: Optional[list] = None
-    is_final: bool = True
-    chunk_id: Optional[str] = None
 
 
 class AbstractTranscriptionBackend(ABC):
@@ -37,6 +24,10 @@ class AbstractTranscriptionBackend(ABC):
             "avg_confidence": 0.0,
             "errors": []
         }
+    
+    def get_display_info(self) -> str:
+        """Get display information for this backend (e.g., project info)."""
+        return ""
     
     @abstractmethod
     def transcribe_chunk(self, audio_chunk: bytes, sample_rate: int = 16000) -> TranscriptionResult:

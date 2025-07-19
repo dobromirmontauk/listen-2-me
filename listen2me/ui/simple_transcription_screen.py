@@ -8,7 +8,7 @@ import termios
 import tty
 from datetime import datetime
 from typing import Optional
-from dataclasses import dataclass
+from ..models.ui import TranscriptionStatus
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -16,30 +16,16 @@ from rich.table import Table
 from rich.align import Align
 
 from ..audio.capture import AudioCapture
-from ..storage.file_manager import FileManager, SessionInfo
+from ..storage.file_manager import FileManager
+from ..models.session import SessionInfo
 from ..transcription import TranscriptionEngine, GoogleSpeechBackend, TranscriptionResult
+from ..transcription.dual_engine import DualTranscriptionEngine
 from ..config import get_config
 
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class TranscriptionStatus:
-    """Status information for transcription session."""
-    session_id: Optional[str] = None
-    is_recording: bool = False
-    is_transcribing: bool = False
-    duration_seconds: float = 0.0
-    total_chunks: int = 0
-    chunks_processed: int = 0
-    peak_level: float = 0.0
-    current_text: str = ""
-    transcription_results: list = None
-    
-    def __post_init__(self):
-        if self.transcription_results is None:
-            self.transcription_results = []
 
 
 class SimpleTranscriptionScreen:
@@ -61,19 +47,17 @@ class SimpleTranscriptionScreen:
         
         self.file_manager = FileManager(data_dir)
         self.audio_capture: Optional[AudioCapture] = None
-        self.transcription_engine: Optional[TranscriptionEngine] = None
+        self.transcription_engine: Optional[DualTranscriptionEngine] = None
         self.status = TranscriptionStatus()
         self.running = False
         
-        # Audio buffering for transcription (configurable chunk size)
-        self.transcription_buffer = bytearray()
-        chunk_duration = self.config.get('transcription.chunk_duration_seconds', 2.0)
-        sample_rate = self.config.get('audio.sample_rate', 16000)
-        self.target_transcription_chunk_size = int(sample_rate * 2 * chunk_duration)  # 2 bytes per sample (16-bit)
-        self.max_chunk_interval = self.config.get('transcription.max_chunk_interval_seconds', 2.5)
-        self.last_transcription_submit = time.time()
+        # Dual transcription results storage
+        self.realtime_transcriptions = []
+        self.batch_transcriptions = []
         
-        logger.info(f"Transcription chunking: {chunk_duration}s chunks ({self.target_transcription_chunk_size} bytes), max interval {self.max_chunk_interval}s")
+        # Debug: ALL transcription attempts (including no speech)
+        self.all_realtime_attempts = []
+        self.all_batch_attempts = []
         
         logger.info(f"SimpleTranscriptionScreen initialized with config: {self.config.config_file}")
         
@@ -123,13 +107,14 @@ class SimpleTranscriptionScreen:
         microphone_status = "✅ Microphone Ready" if self._check_microphone_available() else "❌ Microphone Not Available"
         
         if self.transcription_engine:
-            # Get project info from the Google backend
-            project_info = ""
+            # Get display info from backends
+            display_info = ""
             for backend in self.transcription_engine.backends:
-                if hasattr(backend, 'project_id') and backend.project_id:
-                    project_info = f" (Project: {backend.project_id})"
+                info = backend.get_display_info()
+                if info:
+                    display_info = info
                     break
-            transcription_status = f"✅ Transcription Ready{project_info}"
+            transcription_status = f"✅ Transcription Ready{display_info}"
         else:
             transcription_status = "❌ Transcription Not Ready"
         
@@ -155,7 +140,7 @@ class SimpleTranscriptionScreen:
             for i, result in enumerate(recent_results):
                 if result.text and result.text.strip():
                     confidence_str = f"({result.confidence:.1%})" if result.confidence > 0 else ""
-                    service_str = f"[{result.service}]" if hasattr(result, 'service') else ""
+                    service_str = f"[{result.service}]"
                     self.console.print(f"   {result.text} {confidence_str} {service_str}")
                     
             if len(self.status.transcription_results) > 3:
@@ -184,62 +169,76 @@ class SimpleTranscriptionScreen:
             self.status.total_chunks = stats.total_chunks
             self.status.peak_level = stats.peak_level
             
-            # Process audio chunks for transcription
+            # Process audio chunks for dual-mode transcription
             if self.status.is_recording and self.transcription_engine:
-                # Buffer audio chunks and send larger chunks to transcription
+                # Send raw audio chunks directly to dual engine
                 raw_chunks_received = 0
                 while self.audio_capture.has_audio_data():
                     audio_chunk = self.audio_capture.get_audio_chunk()
                     if audio_chunk and len(audio_chunk) > 0:
-                        # Add to transcription buffer
-                        self.transcription_buffer.extend(audio_chunk)
+                        # Send to dual transcription engine with timestamp
+                        self.transcription_engine.submit_audio_chunk(audio_chunk, time.time())
                         raw_chunks_received += 1
                         self.status.chunks_processed += 1
                 
                 if raw_chunks_received > 0:
-                    logger.debug(f"🎤 UI: Buffered {raw_chunks_received} raw audio chunks ({len(self.transcription_buffer)} bytes total)")
+                    logger.debug(f"🎤 UI: Sent {raw_chunks_received} raw audio chunks to dual engine")
                 
-                # Send buffered audio to transcription when we have enough (1+ seconds)
-                current_time = time.time()
-                time_since_last_submit = current_time - self.last_transcription_submit
+                # Collect completed transcription results from both modes
+                results_dict = self.transcription_engine.get_completed_results()
+                realtime_results = results_dict.get('realtime', [])
+                batch_results = results_dict.get('batch', [])
                 
-                if (len(self.transcription_buffer) >= self.target_transcription_chunk_size or 
-                    time_since_last_submit >= self.max_chunk_interval):
+                # Process real-time results
+                if realtime_results:
+                    logger.debug(f"🎯 UI: Received {len(realtime_results)} new real-time results")
                     
-                    if len(self.transcription_buffer) > 0:
-                        # Send the buffered audio as one chunk
-                        buffer_copy = bytes(self.transcription_buffer)
-                        logger.debug(f"🎯 UI: Sending transcription chunk ({len(buffer_copy)} bytes, {len(buffer_copy)/32000:.1f}s of audio)")
-                        self.transcription_engine.submit_chunk(buffer_copy, sample_rate=16000)
-                        
-                        # Clear buffer and update timing
-                        self.transcription_buffer.clear()
-                        self.last_transcription_submit = current_time
-                
-                # Collect completed transcription results
-                new_results = self.transcription_engine.get_completed_results()
-                if new_results:
-                    logger.debug(f"🎯 UI: Received {len(new_results)} new transcription results")
-                    # Filter out empty results
-                    meaningful_results = [r for r in new_results if r.text and r.text.strip()]
-                    logger.debug(f"🎯 UI: {len(meaningful_results)} meaningful results after filtering")
+                    # Store ALL attempts for debugging
+                    self.all_realtime_attempts.extend(realtime_results)
                     
-                    self.status.transcription_results.extend(meaningful_results)
+                    # Filter for meaningful results (non-empty speech)
+                    meaningful_realtime = [r for r in realtime_results if r.text and r.text.strip() and r.text != "[NO_SPEECH_DETECTED]"]
+                    self.realtime_transcriptions.extend(meaningful_realtime)
+                    self.status.transcription_results.extend(meaningful_realtime)
                     
-                    # Update current text with latest meaningful result
-                    if meaningful_results:
-                        latest_result = meaningful_results[-1]
+                    # Log all attempts (including no speech)
+                    for result in realtime_results:
+                        if result.text == "[NO_SPEECH_DETECTED]":
+                            logger.debug(f"🔇 REALTIME: No speech detected (confidence: {result.confidence:.2f}, time: {result.processing_time:.3f}s)")
+                        elif result.text and result.text.strip():
+                            logger.debug(f"🎯 REALTIME: '{result.text}' (confidence: {result.confidence:.2f})")
+                            logger.info(f"📝 REALTIME: '{result.text}'")
+                    
+                    # Update display with latest meaningful result
+                    if meaningful_realtime:
+                        latest_result = meaningful_realtime[-1]
                         self.status.current_text = latest_result.text
-                        logger.debug(f"🎯 UI: New transcription: '{latest_result.text}' "
-                                   f"(confidence: {latest_result.confidence:.2f})")
-                        logger.info(f"📝 Transcription: '{latest_result.text}'")
+                
+                # Process batch results
+                if batch_results:
+                    logger.debug(f"🎯 UI: Received {len(batch_results)} new batch results")
+                    
+                    # Store ALL attempts for debugging
+                    self.all_batch_attempts.extend(batch_results)
+                    
+                    # Filter for meaningful results (non-empty speech)
+                    meaningful_batch = [r for r in batch_results if r.text and r.text.strip() and r.text != "[NO_SPEECH_DETECTED]"]
+                    self.batch_transcriptions.extend(meaningful_batch)
+                    
+                    # Log all attempts (including no speech)
+                    for result in batch_results:
+                        if result.text == "[NO_SPEECH_DETECTED]":
+                            logger.debug(f"🔇 BATCH: No speech detected (confidence: {result.confidence:.2f}, time: {result.processing_time:.3f}s)")
+                        elif result.text and result.text.strip():
+                            logger.debug(f"🎯 BATCH: '{result.text}' (confidence: {result.confidence:.2f})")
+                            logger.info(f"📝 BATCH: '{result.text}'")
                 
                 # Update transcribing status
                 self.status.is_transcribing = self.status.chunks_processed > len(self.status.transcription_results)
     
     def _setup_transcription(self) -> bool:
-        """Set up transcription engine with available backends."""
-        logger.info("Starting transcription setup...")
+        """Set up dual-mode transcription engine with available backends."""
+        logger.info("Starting dual-mode transcription setup...")
         backends = []
         
         # Get configuration values
@@ -267,14 +266,27 @@ class SimpleTranscriptionScreen:
         else:
             raise RuntimeError("Google Speech backend failed to initialize")
         
-        # Initialize transcription engine
-        logger.info(f"Initializing transcription engine with {len(backends)} backends...")
-        self.transcription_engine = TranscriptionEngine(backends)
+        # Get transcription configuration
+        realtime_config = self.config.get('transcription.realtime', {})
+        batch_config = self.config.get('transcription.batch', {})
+        
+        logger.info(f"Dual transcription config:")
+        logger.info(f"  Real-time: {realtime_config}")
+        logger.info(f"  Batch: {batch_config}")
+        
+        # Initialize dual transcription engine
+        logger.info(f"Initializing dual transcription engine with {len(backends)} backends...")
+        self.transcription_engine = DualTranscriptionEngine(
+            backends=backends,
+            realtime_config=realtime_config,
+            batch_config=batch_config
+        )
+        
         if self.transcription_engine.initialize():
-            logger.info("✅ Transcription engine initialized successfully")
+            logger.info("✅ Dual transcription engine initialized successfully")
             return True
         else:
-            raise RuntimeError("Failed to initialize transcription engine")
+            raise RuntimeError("Failed to initialize dual transcription engine")
     
     def start_recording(self) -> None:
         """Start recording."""
@@ -298,11 +310,11 @@ class SimpleTranscriptionScreen:
             # Create session
             self.status.session_id = self.file_manager.create_session_directory()
             
-            # Clear previous transcription results and buffer
+            # Clear previous transcription results
             self.status.transcription_results = []
             self.status.chunks_processed = 0
-            self.transcription_buffer.clear()
-            self.last_transcription_submit = time.time()
+            self.realtime_transcriptions = []
+            self.batch_transcriptions = []
             
             # Start recording
             self.audio_capture.start_recording()
@@ -325,12 +337,23 @@ class SimpleTranscriptionScreen:
             self.audio_capture.stop_recording()
             self.status.is_recording = False
             
-            # Send any remaining buffered audio before stopping
-            if self.transcription_engine and len(self.transcription_buffer) > 0:
-                buffer_copy = bytes(self.transcription_buffer)
-                logger.info(f"Sending final buffered audio chunk ({len(buffer_copy)} bytes)")
-                self.transcription_engine.submit_chunk(buffer_copy, sample_rate=16000)
-                self.transcription_buffer.clear()
+            # Collect any final transcription results from dual engine
+            logger.info("Collecting final transcription results from both engines...")
+            if self.transcription_engine:
+                results_dict = self.transcription_engine.get_completed_results()
+                realtime_results = results_dict.get('realtime', [])
+                batch_results = results_dict.get('batch', [])
+                
+                if realtime_results:
+                    meaningful_realtime = [r for r in realtime_results if r.text and r.text.strip()]
+                    self.realtime_transcriptions.extend(meaningful_realtime)
+                    self.status.transcription_results.extend(meaningful_realtime)
+                    logger.info(f"Collected {len(meaningful_realtime)} final real-time results")
+                
+                if batch_results:
+                    meaningful_batch = [r for r in batch_results if r.text and r.text.strip()]
+                    self.batch_transcriptions.extend(meaningful_batch)
+                    logger.info(f"Collected {len(meaningful_batch)} final batch results")
             
             # Wait for pending transcriptions of recorded audio to complete
             logger.info("Waiting for pending transcriptions...")
@@ -339,11 +362,20 @@ class SimpleTranscriptionScreen:
             
             # Collect any final transcription results
             if self.transcription_engine:
-                final_results = self.transcription_engine.get_completed_results()
-                if final_results:
-                    meaningful_results = [r for r in final_results if r.text and r.text.strip()]
-                    self.status.transcription_results.extend(meaningful_results)
-                    logger.info(f"Collected {len(meaningful_results)} final transcription results")
+                final_results_dict = self.transcription_engine.get_completed_results()
+                final_realtime = final_results_dict.get('realtime', [])
+                final_batch = final_results_dict.get('batch', [])
+                
+                if final_realtime:
+                    meaningful_realtime = [r for r in final_realtime if r.text and r.text.strip()]
+                    self.realtime_transcriptions.extend(meaningful_realtime)
+                    self.status.transcription_results.extend(meaningful_realtime)
+                    logger.info(f"Collected {len(meaningful_realtime)} final real-time results")
+                
+                if final_batch:
+                    meaningful_batch = [r for r in final_batch if r.text and r.text.strip()]
+                    self.batch_transcriptions.extend(meaningful_batch)
+                    logger.info(f"Collected {len(meaningful_batch)} final batch results")
             
             # Save session
             if self.status.session_id:
@@ -353,24 +385,135 @@ class SimpleTranscriptionScreen:
                 
                 self.audio_capture.save_to_file(str(audio_filepath))
                 
-                # Save transcription results in multiple formats
-                if self.status.transcription_results:
-                    # Save as JSON (raw transcription format per PRD)
-                    transcription_json_filename = f"raw_transcription_{self.status.session_id}.json"
-                    transcription_json_filepath = session_path / transcription_json_filename
+                # Save transcription results in multiple formats (both real-time and batch)
+                try:
+                    import json
                     
-                    # Save as readable text
-                    transcription_txt_filename = f"transcription_{self.status.session_id}.txt"
-                    transcription_txt_filepath = session_path / transcription_txt_filename
-                    
-                    try:
-                        # Save JSON format (per PRD requirements)
-                        import json
-                        transcription_data = {
+                    # Save real-time transcription results (including debug data)
+                    if self.realtime_transcriptions or self.all_realtime_attempts:
+                        realtime_json_filename = f"realtime_transcription_{self.status.session_id}.json"
+                        realtime_json_filepath = session_path / realtime_json_filename
+                        realtime_txt_filename = f"realtime_transcription_{self.status.session_id}.txt"
+                        realtime_txt_filepath = session_path / realtime_txt_filename
+                        
+                        # JSON format for real-time (use all attempts for debugging)
+                        realtime_data = {
                             "session_id": self.status.session_id,
+                            "transcription_mode": "realtime",
+                            "generated_at": datetime.now().isoformat(),
+                            "total_results": len(self.all_realtime_attempts),
+                            "meaningful_results": len(self.realtime_transcriptions),
+                            "audio_file": audio_filename,
+                            "transcription_segments": []
+                        }
+                        
+                        for i, result in enumerate(self.all_realtime_attempts):
+                            segment = {
+                                "segment_id": i + 1,
+                                "timestamp": result.timestamp.isoformat(),
+                                "audio_start_time": result.audio_start_time,
+                                "audio_end_time": result.audio_end_time,
+                                "text": result.text,
+                                "confidence": result.confidence,
+                                "service": result.service,
+                                "language": result.language,
+                                "processing_time": result.processing_time,
+                                "transcription_mode": result.transcription_mode,
+                                "chunk_id": result.chunk_id,
+                                "alternatives": result.alternatives
+                            }
+                            realtime_data["transcription_segments"].append(segment)
+                        
+                        with open(realtime_json_filepath, 'w', encoding='utf-8') as f:
+                            json.dump(realtime_data, f, indent=2, ensure_ascii=False)
+                        
+                        # Text format for real-time (use all attempts for debugging)
+                        with open(realtime_txt_filepath, 'w', encoding='utf-8') as f:
+                            f.write(f"REAL-TIME Transcription for session: {self.status.session_id}\n")
+                            f.write(f"Generated at: {datetime.now().isoformat()}\n")
+                            f.write(f"Total attempts: {len(self.all_realtime_attempts)} (meaningful: {len(self.realtime_transcriptions)})\n")
+                            f.write("=" * 60 + "\n\n")
+                            
+                            for i, result in enumerate(self.all_realtime_attempts):
+                                audio_time = f"Audio: {result.audio_start_time:.1f}-{result.audio_end_time:.1f}s" if result.audio_start_time else ""
+                                f.write(f"[RT-{i+1:03d}] {result.timestamp.strftime('%H:%M:%S')} {audio_time}\n")
+                                f.write(f"         Confidence: {result.confidence:.1%} via {result.service}\n")
+                                f.write(f"         {result.text}\n\n")
+                        
+                        logger.info(f"Saved {len(self.all_realtime_attempts)} real-time transcription attempts ({len(self.realtime_transcriptions)} meaningful)")
+                        logger.info(f"Saved real-time JSON: {realtime_json_filepath}")
+                        logger.info(f"Saved real-time text: {realtime_txt_filepath}")
+                    
+                    # Save batch transcription results (including debug data)
+                    if self.batch_transcriptions or self.all_batch_attempts:
+                        batch_json_filename = f"batch_transcription_{self.status.session_id}.json"
+                        batch_json_filepath = session_path / batch_json_filename
+                        batch_txt_filename = f"batch_transcription_{self.status.session_id}.txt"
+                        batch_txt_filepath = session_path / batch_txt_filename
+                        
+                        # JSON format for batch (use all attempts for debugging)
+                        batch_data = {
+                            "session_id": self.status.session_id,
+                            "transcription_mode": "batch",
+                            "generated_at": datetime.now().isoformat(),
+                            "total_results": len(self.all_batch_attempts),
+                            "meaningful_results": len(self.batch_transcriptions),
+                            "audio_file": audio_filename,
+                            "transcription_segments": []
+                        }
+                        
+                        for i, result in enumerate(self.all_batch_attempts):
+                            segment = {
+                                "segment_id": i + 1,
+                                "timestamp": result.timestamp.isoformat(),
+                                "audio_start_time": result.audio_start_time,
+                                "audio_end_time": result.audio_end_time,
+                                "text": result.text,
+                                "confidence": result.confidence,
+                                "service": result.service,
+                                "language": result.language,
+                                "processing_time": result.processing_time,
+                                "transcription_mode": result.transcription_mode,
+                                "batch_id": result.batch_id,
+                                "chunk_id": result.chunk_id,
+                                "alternatives": result.alternatives
+                            }
+                            batch_data["transcription_segments"].append(segment)
+                        
+                        with open(batch_json_filepath, 'w', encoding='utf-8') as f:
+                            json.dump(batch_data, f, indent=2, ensure_ascii=False)
+                        
+                        # Text format for batch (use all attempts for debugging)
+                        with open(batch_txt_filepath, 'w', encoding='utf-8') as f:
+                            f.write(f"BATCH Transcription for session: {self.status.session_id}\n")
+                            f.write(f"Generated at: {datetime.now().isoformat()}\n")
+                            f.write(f"Total attempts: {len(self.all_batch_attempts)} (meaningful: {len(self.batch_transcriptions)})\n")
+                            f.write("=" * 60 + "\n\n")
+                            
+                            for i, result in enumerate(self.all_batch_attempts):
+                                audio_time = f"Audio: {result.audio_start_time:.1f}-{result.audio_end_time:.1f}s" if result.audio_start_time else ""
+                                f.write(f"[BATCH-{i+1:03d}] {result.timestamp.strftime('%H:%M:%S')} {audio_time}\n")
+                                f.write(f"           Batch ID: {result.batch_id}\n")
+                                f.write(f"           Confidence: {result.confidence:.1%} via {result.service}\n")
+                                f.write(f"           {result.text}\n\n")
+                        
+                        logger.info(f"Saved {len(self.all_batch_attempts)} batch transcription attempts ({len(self.batch_transcriptions)} meaningful)")
+                        logger.info(f"Saved batch JSON: {batch_json_filepath}")
+                        logger.info(f"Saved batch text: {batch_txt_filepath}")
+                    
+                    # Also save combined transcription for compatibility
+                    if self.status.transcription_results:
+                        combined_json_filename = f"combined_transcription_{self.status.session_id}.json"
+                        combined_json_filepath = session_path / combined_json_filename
+                        
+                        combined_data = {
+                            "session_id": self.status.session_id,
+                            "transcription_mode": "combined",
                             "generated_at": datetime.now().isoformat(),
                             "total_results": len(self.status.transcription_results),
                             "audio_file": audio_filename,
+                            "realtime_count": len(self.realtime_transcriptions),
+                            "batch_count": len(self.batch_transcriptions),
                             "transcription_segments": []
                         }
                         
@@ -378,36 +521,23 @@ class SimpleTranscriptionScreen:
                             segment = {
                                 "segment_id": i + 1,
                                 "timestamp": result.timestamp.isoformat(),
+                                "audio_start_time": getattr(result, 'audio_start_time', None),
+                                "audio_end_time": getattr(result, 'audio_end_time', None),
                                 "text": result.text,
                                 "confidence": result.confidence,
                                 "service": result.service,
-                                "language": result.language,
-                                "processing_time": result.processing_time,
-                                "is_final": result.is_final,
-                                "chunk_id": result.chunk_id,
-                                "alternatives": result.alternatives
+                                "transcription_mode": getattr(result, 'transcription_mode', 'unknown'),
+                                "batch_id": getattr(result, 'batch_id', None)
                             }
-                            transcription_data["transcription_segments"].append(segment)
+                            combined_data["transcription_segments"].append(segment)
                         
-                        with open(transcription_json_filepath, 'w', encoding='utf-8') as f:
-                            json.dump(transcription_data, f, indent=2, ensure_ascii=False)
+                        with open(combined_json_filepath, 'w', encoding='utf-8') as f:
+                            json.dump(combined_data, f, indent=2, ensure_ascii=False)
                         
-                        # Save readable text format
-                        with open(transcription_txt_filepath, 'w', encoding='utf-8') as f:
-                            f.write(f"Transcription for session: {self.status.session_id}\n")
-                            f.write(f"Generated at: {datetime.now().isoformat()}\n")
-                            f.write("=" * 50 + "\n\n")
-                            
-                            for i, result in enumerate(self.status.transcription_results):
-                                f.write(f"[{i+1:03d}] {result.timestamp.strftime('%H:%M:%S')} ")
-                                f.write(f"({result.confidence:.1%} via {result.service})\n")
-                                f.write(f"{result.text}\n\n")
-                        
-                        logger.info(f"Saved {len(self.status.transcription_results)} transcription results")
-                        logger.info(f"Saved raw transcription JSON: {transcription_json_filepath}")
-                        logger.info(f"Saved readable transcription: {transcription_txt_filepath}")
-                    except Exception as e:
-                        logger.error(f"Failed to save transcription results: {e}")
+                        logger.info(f"Saved combined transcription JSON: {combined_json_filepath}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to save transcription results: {e}")
                 
                 stats = self.audio_capture.get_recording_stats()
                 session_info = SessionInfo(

@@ -107,6 +107,26 @@ class Listen2MeConfig:
         
         return value
     
+    def set(self, key_path: str, value: Any) -> None:
+        """Set configuration value using dot notation.
+        
+        Args:
+            key_path: Dot-separated path to config value (e.g., 'google_cloud.language')
+            value: Value to set
+        """
+        keys = key_path.split('.')
+        config_dict = self.config
+        
+        # Navigate to the parent dictionary
+        for key in keys[:-1]:
+            if key not in config_dict:
+                config_dict[key] = {}
+            config_dict = config_dict[key]
+        
+        # Set the final value
+        config_dict[keys[-1]] = value
+        logger.debug(f"Configuration key '{key_path}' set to: {value}")
+    
     def get_google_credentials_path(self) -> str:
         """Get Google credentials path - CRASHES if not found."""
         creds_path = self.get('google_cloud.credentials_path')

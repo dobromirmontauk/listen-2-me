@@ -7,7 +7,7 @@ import logging
 from queue import Queue, Empty
 from threading import Thread, Event
 from typing import Optional, Dict, Any, List
-from dataclasses import dataclass
+from ..models.audio import AudioStats
 from datetime import datetime
 import numpy as np
 
@@ -15,17 +15,6 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class AudioStats:
-    """Audio recording statistics."""
-    is_recording: bool
-    duration_seconds: float
-    buffer_size: int
-    sample_rate: int
-    chunk_size: int
-    total_chunks: int
-    dropped_chunks: int
-    peak_level: float
 
 
 class AudioCapture:
