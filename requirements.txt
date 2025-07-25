@@ -16,3 +16,6 @@ rich>=12.5.0
 click>=8.1.0
 pydantic>=1.10.0
 pyyaml>=6.0.0
+
+# Pub/Sub messaging
+pypubsub>=4.0.3

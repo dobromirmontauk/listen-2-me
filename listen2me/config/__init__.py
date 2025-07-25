@@ -19,30 +19,13 @@ class Listen2MeConfig:
             config_path: Path to YAML config file. If None, looks for listen2me.yaml 
                         in current directory and parent directories.
         """
-        if config_path:
-            self.config_file = Path(config_path)
-        else:
-            self.config_file = self._find_config_file()
+        self.config_file = Path(config_path)
         
         if not self.config_file.exists():
             raise FileNotFoundError(f"Configuration file not found: {self.config_file}")
         
         logger.info(f"Loading configuration from: {self.config_file}")
         self.config = self._load_config()
-    
-    def _find_config_file(self) -> Path:
-        """Find listen2me.yaml config file in current directory or parent directories."""
-        current_dir = Path.cwd()
-        
-        # Check current directory and up to 3 parent directories
-        for _ in range(4):
-            config_path = current_dir / "listen2me.yaml"
-            if config_path.exists():
-                return config_path
-            current_dir = current_dir.parent
-        
-        # Default to current directory
-        return Path("listen2me.yaml")
     
     def _load_config(self) -> Dict[str, Any]:
         """Load and parse YAML configuration file."""
@@ -144,21 +127,3 @@ class Listen2MeConfig:
         data_dir = self.get('storage.data_directory', 'data')
         return str(Path(data_dir).absolute())
 
-
-# Global configuration instance
-_config: Optional[Listen2MeConfig] = None
-
-
-def get_config() -> Listen2MeConfig:
-    """Get global configuration instance."""
-    global _config
-    if _config is None:
-        _config = Listen2MeConfig()
-    return _config
-
-
-def reload_config(config_path: Optional[str] = None) -> Listen2MeConfig:
-    """Reload configuration from file."""
-    global _config
-    _config = Listen2MeConfig(config_path)
-    return _config

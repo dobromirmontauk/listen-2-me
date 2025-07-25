@@ -1,15 +1,76 @@
 """Main application entry point for Listen2Me."""
 
 import sys
+import time
 import argparse
 import logging
 from pathlib import Path
 
-from .ui.simple_transcription_screen import SimpleTranscriptionScreen
-from .config import get_config
+from listen2me.audio.audio_pub import AudioPublisher
+from listen2me.audio.capture import AudioCapture
+from listen2me.services.transcription_service import TranscriptionService
+
+from .config import Listen2MeConfig 
+
+logger = logging.getLogger(__name__)
+
+class Server:
+
+    def __init__(self, config_path: str):
+       # Load configuration
+        self.config = Listen2MeConfig(config_path)
+        # Set up logging (override config with command line if specified)
+        log_level = self.config.get('logging.level', 'INFO')
+        setup_logging(self.config, log_level)
+        self.should_exit = False
+
+
+    def init(self):
+        # Initialize services
+        logger.info("Initializing services...")
+        
+        # Get audio settings from config
+        sample_rate = self.config.get('audio.sample_rate', 16000)
+        chunk_size = self.config.get('audio.chunk_size', 1024)
+        channels = self.config.get('audio.channels', 1)
+        
+        # Calculate chunks per second for transcription timing
+        chunks_per_second = sample_rate / chunk_size
+        
+        logger.info(f"Audio settings: {sample_rate}Hz, {chunk_size} samples/chunk, {channels} channels")
+        logger.info(f"Chunks per second: {chunks_per_second:.1f}")
+        
+        self.audio_publisher = AudioPublisher("audio.frame")
+        self.audio_capture = AudioCapture(
+            callback=self.audio_publisher.publish_audio_event,
+            sample_rate=sample_rate,
+            chunk_size=chunk_size,
+            channels=channels
+        )
+        self.transcription_service = TranscriptionService(self.config, "audio.frame")
+        self.transcription_service.start_transcription_consumers(chunks_per_second)
+
+    def run(self, duration: int):
+        try:
+            self.audio_capture.start_recording()
+            if duration:
+                time.sleep(duration)
+            else:
+                while not self.should_exit:
+                    time.sleep(1)
+        except Exception as e:
+            logger.error(f"Error in run: {e}")
+        finally:
+            self.cleanup()
+
+    def cleanup(self):
+        self.audio_capture.stop_recording()
+        self.transcription_service.shutdown_transcription()
+
 
 
 def setup_logging(config, level: str = "INFO") -> None:
+
     """Set up logging configuration from YAML config."""
     # Get log file path from config
     log_file_path = config.get('logging.file_path', 'data/logs/listen2me.log')
@@ -109,53 +170,16 @@ def main() -> None:
     )
     
     args = parser.parse_args()
-    
+
+    server = Server(args.config)
     try:
-        # Load configuration first to set up logging properly
-        if args.config:
-            from .config import reload_config
-            config = reload_config(args.config)
-        else:
-            config = get_config()
-        
-        # Set up logging (override config with command line if specified)
-        log_level = args.log_level if args.log_level != "INFO" else config.get('logging.level', 'INFO')
-        setup_logging(config, log_level)
-        
+        server.init()
         if args.auto:
-            # Auto mode: automated recording for testing
-            print("🤖 Listen2Me - Auto Mode")
-            print("=" * 50)
-            print(f"Configuration: {config.config_file}")
-            print(f"Data directory: {config.get_data_directory()}")
-            print(f"Recording duration: {args.duration} seconds")
-            print(f"Log level: {log_level}")
-            print("=" * 50)
-            
-            # Run auto mode
-            from .auto_mode import run_auto_mode
-            batch_overrides = {}
-            if args.batch_window:
-                batch_overrides['window_duration_seconds'] = args.batch_window
-            if args.batch_interval:
-                batch_overrides['interval_seconds'] = args.batch_interval
-            
-            run_auto_mode(args.config, args.duration, batch_overrides)
+            server.run(args.duration)
         else:
-            # Interactive mode
-            print("🎙️  Listen2Me - Real-time Voice Transcription")
-            print("=" * 50)
-            print(f"Configuration: {config.config_file}")
-            print(f"Data directory: {config.get_data_directory()}")
-            print(f"Log level: {log_level}")
-            print("=" * 50)
-            
-            # Initialize and run transcription screen
-            print("Starting Listen2Me interface...")
-            screen = SimpleTranscriptionScreen(args.config)
-            screen.run()
-        
+            raise NotImplementedError("Interactive mode not implemented yet")
     except KeyboardInterrupt:
+        server.cleanup()
         print("\n👋 Goodbye!")
     except Exception as e:
         print(f"❌ Error: {e}")

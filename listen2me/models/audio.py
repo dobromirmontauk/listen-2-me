@@ -12,8 +12,6 @@ class AudioStats:
     sample_rate: int
     chunk_size: int
     total_chunks: int
-    dropped_chunks: int
-    peak_level: float
 
 
 @dataclass

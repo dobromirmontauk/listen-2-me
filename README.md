@@ -204,6 +204,30 @@ listen2me/
 
 ## Development
 
+### VSCode Debugging
+
+To debug Listen2Me in VSCode with breakpoints:
+
+1. **Open the project in VSCode**:
+   ```bash
+   cd listen-2-me
+   code .
+   ```
+
+2. **Use the debug configurations** (`.vscode/launch.json`):
+   - **"Listen2Me Auto Mode"**: 5-second auto recording with DEBUG logging
+   - **"Listen2Me Auto Mode - Long"**: 15-second auto recording with INFO logging  
+   - **"Listen2Me Interactive Mode"**: Full UI mode with DEBUG logging
+
+3. **Set breakpoints** in the code and press `F5` to start debugging
+
+4. **Key files to debug**:
+   - `listen2me/main.py` - Entry point and auto mode logic
+   - `listen2me/services/recording_service.py` - Audio recording and publishing
+   - `listen2me/services/transcription_service.py` - Consumer management
+   - `listen2me/pubsub/pypubsub_wrapper.py` - Pub/Sub message handling
+   - `listen2me/audio/capture.py` - Low-level audio capture
+
 ### Running Tests
 
 ```bash

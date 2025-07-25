@@ -21,26 +21,9 @@ logger = logging.getLogger(__name__)
 class SimpleTranscriptionScreen:
     """Simple transcription interface using the internal service API."""
     
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self):
         """Initialize simple transcription screen."""
         self.console = Console()
-        
-        # Load configuration
-        if config_path:
-            from ..config import reload_config
-            self.config = reload_config(config_path)
-        else:
-            self.config = get_config()
-        
-        # Initialize services
-        logger.info("Initializing services...")
-        self.console.print("🔧 Initializing transcription services...", style="blue")
-        
-        self.recording_service = RecordingService(self.config)
-        self.session_manager = SessionManager(self.config)
-        
-        self.console.print("✅ Transcription engine ready!", style="green")
-        logger.info("Services initialized successfully")
         
         # UI state
         self.status = TranscriptionStatus()

@@ -147,9 +147,16 @@ class FileManager:
             
             return SessionInfo(**data)
             
-        except Exception as e:
-            logger.error(f"Error loading session info: {e}")
+        except (FileNotFoundError, PermissionError):
+            # Legitimate file access issues - return None
+            logger.warning(f"Cannot access session info file: {info_file}")
             return None
+        except Exception as e:
+            # JSON parse errors, invalid data format, etc. are critical failures
+            logger.error(f"Session info file CRITICAL FAILURE for {session_id}: {e}")
+            logger.error(f"File path: {info_file}")
+            # FAIL FAST - Don't hide data corruption or format errors
+            raise
     
     def list_sessions(self) -> List[str]:
         """List all available session IDs.
