@@ -9,6 +9,7 @@ from pathlib import Path
 from listen2me.audio.audio_pub import AudioPublisher
 from listen2me.audio.capture import AudioCapture
 from listen2me.services.transcription_service import TranscriptionService
+from listen2me.transcription.aggregator import TranscriptionAggregator
 
 from .config import Listen2MeConfig 
 
@@ -49,6 +50,10 @@ class Server:
         )
         self.transcription_service = TranscriptionService(self.config, "audio.frame")
         self.transcription_service.start_transcription_consumers(chunks_per_second)
+        
+        # Create transcription aggregators
+        self.realtime_aggregator = TranscriptionAggregator("transcription.realtime", "realtime")
+        self.batch_aggregator = TranscriptionAggregator("transcription.batch", "batch")
 
     def run(self, duration: int):
         try:
@@ -66,6 +71,10 @@ class Server:
     def cleanup(self):
         self.audio_capture.stop_recording()
         self.transcription_service.shutdown_transcription()
+        
+        # Shutdown aggregators and print results
+        self.realtime_aggregator.shutdown()
+        self.batch_aggregator.shutdown()
 
 
 

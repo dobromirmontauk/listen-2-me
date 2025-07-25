@@ -5,7 +5,7 @@ import asyncio
 import logging
 import threading
 import traceback
-from typing import List, Optional 
+from typing import List, Optional, Callable
 
 from ..models.events import AudioEvent 
 from ..models.transcription import TranscriptionResult
@@ -14,16 +14,18 @@ from .base import AbstractTranscriptionBackend
 logger = logging.getLogger(__name__)
 
 
-class TranscriptionConsumer:
+class TranscriptionAudioConsumer:
     """Unified transcription consumer - handles both realtime and batch transcription."""
     
     def __init__(self, 
                  name: str,
                  backend: AbstractTranscriptionBackend, 
-                 trigger_chunks: int):
+                 trigger_chunks: int,
+                 result_callback: Optional[Callable[['TranscriptionResult'], None]] = None):
         self.name = name
         self.backend = backend
         self.trigger_chunks = trigger_chunks
+        self.result_callback = result_callback
         
         # Audio buffering
         self.audio_buffer = bytearray()
@@ -121,21 +123,8 @@ class TranscriptionConsumer:
         result = await task
         logger.info(f"✅ {self.name.upper()}: '{result.text}' ({result.confidence:.1%}) via {result.service}")
         
-        # Wait for all transcriptions to complete
-        # WE SHOULD DO THIS WHEN WE ARE CLOSING OUT THIS CONSUMER!
-        # results = await asyncio.gather(*self.transcription_tasks, return_exceptions=True)
+        self.result_callback(result)
         
-        # Process results
-        # transcription_event = TranscriptionEvent(
-        #     event_id=f"{chunk_id}_{self.backends[i].__class__.__name__}",
-        #     session_id=session_id,
-        #     transcription_result=result,
-        #     consumer_type=consumer_type,
-        #     source_chunk_ids=[chunk_id]
-        # )
-        # self.publish_transcription(transcription_event)
-        
-        # Clear buffer and reset
     
     async def _transcribe_with_backend(self, backend: AbstractTranscriptionBackend, 
                                      audio_data: bytes, chunk_id: str, 
