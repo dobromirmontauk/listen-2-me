@@ -388,50 +388,52 @@ Planning and organizing projects from inception to completion.
 
 **Features:**
 - Simple Python script that records audio to WAV file
-- Basic real-time transcription using OpenAI Whisper or similar
-- Terminal output showing transcription as it happens
+- Basic real-time transcription using Google Cloud Speech-to-Text
+- Auto mode for testing and validation
 - Save transcription to text file when stopped
 
 **Success Criteria:**
 - Can record 5+ minutes of continuous audio
 - Transcription accuracy >80% in quiet environment
-- Terminal shows real-time text output
+- Auto mode works reliably for testing
+- Clear error messages when configuration or credentials are missing
 
 **Broken down to 4 deliverables:**
 1. Enable microphone, recording, and saving to file (with regular checkpoints in case things crash). Clean up resources when finished / crashed.
-2. First transcribing screen with "audio information" only
-3. Real-time transcritption generation, with at least 2 different backend providers (for comparison). Basic statistics gathered from each, e.g. time to response.
-4. Second transcribing screen with "real-time transcription" output.
+2. Auto mode with configurable duration and Google Speech transcription
+3. Real-time transcription generation with Google Cloud Speech-to-Text. Basic statistics gathered, e.g. time to response.
+4. Explicit error handling - app should fail clearly when credentials or configuration are missing.
 
 ### Phase 2: "Walk" -- Cleaned Up Transcription (v0.2)
-**Goal:**: Use AI to clean up otherwise messy transcriptions that would be hard for humans to follow directly.
+**Goal:** Use AI to clean up otherwise messy transcriptions that would be hard for humans to follow directly.
 
 **Features:**
-- LLM integration (OpenAI GPT-4 and Claude) for transcription cleanup.
-- Screens to visualize what is happening.
-- Batching of transcription as there is "enough" to go cleanup. 
-- Removes filler words, formats properly, adds punctuation.
-- Handles long pauses.
-- Maps cleaned up version back to the original transcription.
+- LLM integration (OpenAI GPT-4 and Claude) for transcription cleanup
+- Auto mode with cleaned transcription output
+- Batching of transcription as there is "enough" to go cleanup
+- Removes filler words, formats properly, adds punctuation
+- Handles long pauses
+- Maps cleaned up version back to the original transcription
 
 **Success Criteria:**
-- Transcription cleanup runs continuously.
-- Cleanup doesn't change the input too drastically.
+- Transcription cleanup runs continuously in auto mode
+- Cleanup doesn't change the input too drastically
 - Doesn't duplicate content, mix up ordering, etc.
-- Mapping is roughly correct.
+- Mapping is roughly correct
+- Clear error messages when LLM APIs fail or credentials are missing
 
-**Broken down to X deliverables:**
+**Broken down to 4 deliverables:**
 1. LLM API integration set up to 2 providers (Claude + OpenAI). Successful request/responses processed.
 2. Prompts generated for the "cleanup" phase. Explain what is being put in (raw transcription), and how we want it cleaned up, and especially that we want to maintain fidelity to the original.
-3. Transcribing screen 1c with the "delayed, cleaned-up transcription"
-4. Process that cleans up every 10s, or if there is an audio pause for >2s, or if the entire note is paused/saved. 
+3. Auto mode enhanced to show cleaned transcription results
+4. Process that cleans up every 10s, or if there is an audio pause for >2s, or if the entire note is paused/saved.
 
 ### Phase 3: "Run" - Key Concept Extraction (v0.3)
 **Goal:** Add AI-powered concept identification
 
 **Features:**
 - LLM integration (OpenAI GPT-4 or Claude) for concept extraction
-- Display key concepts in terminal as they're identified
+- Auto mode with concept identification output
 - Save concepts with timestamps in matrix format
 - Basic concept reuse detection
 
@@ -439,16 +441,40 @@ Planning and organizing projects from inception to completion.
 - Identifies 3-5 relevant concepts per 10-minute session
 - Concepts are human-readable and relevant
 - Can reuse concepts from previous sessions
+- Robust concept extraction in auto mode
+- Clear error messages when concept extraction fails
 
-**Broken down to X deliverables:**
+**Broken down to 5 deliverables:**
 1. Data structure for storing our key concepts, both global and note-specific ones.
 2. Data structure for the model explaining how we want the key concepts/timestamps (or sentence indices?) identified, so that it returns data in a format that we can ingest easily.
 3. Clean prompts explaining what we want from the model. Prompt should include the global "key concepts" that the app is aware of so far, as well as key-concepts already identified in this note. Then it should include the "not yet annotated" transcription, and maybe the previous ~3 "blocks" of the note (where a block is a contiguous note on the same Key Concept). 
-3. Integration with 2 LLMs (Claude + OpenAI) for sending the prompts and getting the key concepts back, in the usable API format.
-4. Transcribing Screen 1d showing the concepts as they show up.
-5. Saving the updated global concept hierarchy, and per-note concepts, upon ending the note.
+4. Integration with 2 LLMs (Claude + OpenAI) for sending the prompts and getting the key concepts back, in the usable API format.
+5. Auto mode enhanced to show concept extraction results and save the updated global concept hierarchy.
 
-### Phase 4: "Sprint" - Markdown + Git Integration (v0.4)
+### Phase 4: "Sprint" - Interactive UI (v0.4)
+**Goal:** Build user-friendly terminal interface for the proven auto flow
+
+**Features:**
+- Interactive terminal UI with real-time transcription display
+- Screen 1a: Audio recording status and statistics
+- Screen 1b: Real-time transcription output
+- Screen 1c: Cleaned transcription display
+- Screen 1d: Concept extraction visualization
+- Keyboard shortcuts for navigation and control
+
+**Success Criteria:**
+- All auto mode functionality available through interactive UI
+- Real-time updates during recording and transcription
+- Smooth navigation between different views
+- Robust error handling and user feedback
+
+**Broken down to 4 deliverables:**
+1. **Interactive main application**: Replace auto-only mode with interactive terminal UI
+2. **Screen 1a implementation**: Audio recording status with real-time statistics
+3. **Screen 1b implementation**: Real-time transcription display with backend comparison
+4. **Screen 1c/1d implementation**: Cleaned transcription and concept extraction displays
+
+### Phase 5: "Marathon" - Markdown + Git Integration (v0.5)
 **Goal:** Save all of the notes, key concepts, and relationships in a very human-digestible, iterative format.
 
 **Features:**
@@ -473,7 +499,7 @@ Planning and organizing projects from inception to completion.
 4. **Bidirectional sync**: Read existing Markdown files on startup, if requested, and blow away internal state. 
 5. **Review workflow**: Branch creation, file generation, merge request creation via Git hooks
 
-### Phase 5: "Marathon" - Full Voice Control (v0.5)
+### Phase 6: "Ultra" - Full Voice Control (v0.6)
 **Goal:** Complete hands-free operation
 
 **Features:**
