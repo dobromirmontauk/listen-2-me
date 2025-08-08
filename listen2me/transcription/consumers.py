@@ -121,6 +121,16 @@ class TranscriptionAudioConsumer:
         )
         self.transcription_tasks.append(task)
         result = await task
+
+        # Attach accurate audio timing based on AudioEvent timestamps (recording time, not wall clock)
+        audio_start_time = first_event.timestamp
+        # last_event.chunk_duration_ms may be None for empty final events; default to 0 in that case
+        last_duration_s = (last_event.chunk_duration_ms or 0) / 1000.0
+        audio_end_time = last_event.timestamp + last_duration_s
+
+        result.audio_start_time = audio_start_time
+        result.audio_end_time = audio_end_time
+        result.is_final = is_final
         logger.info(f"✅ {self.name.upper()}: '{result.text}' ({result.confidence:.1%}) via {result.service}")
         
         self.result_callback(result)
