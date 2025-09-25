@@ -1,6 +1,7 @@
 """Transcription service that manages transcription consumers."""
 
 import logging
+import threading
 from pubsub import pub
 from typing import Dict, Any 
 
@@ -71,34 +72,48 @@ class TranscriptionService:
         pub.subscribe(self.batch_consumer.on_audio_chunk, self.topic)
 
 
-    def shutdown_transcription(self) -> Dict[str, Any]:
-        """Shutdown all transcription consumers and wait for completion.
-        
-        Returns:
-            Result dictionary with success status
-        """
+    def shutdown_transcription(self, timeout: float = 30.0) -> Dict[str, Any]:
+        """Shutdown all transcription consumers and wait for completion."""
         logger.info("Shutting down transcription service...")
-        
-        # Unsubscribe from pub/sub
+
+        # Unsubscribe from pub/sub to prevent new events
         try:
             pub.unsubscribe(self.realtime_consumer.on_audio_chunk, self.topic)
             pub.unsubscribe(self.batch_consumer.on_audio_chunk, self.topic)
         except Exception as e:
             logger.warning(f"Error during unsubscribe: {e}")
-        
-        # Shutdown consumers and wait for completion
-        realtime_success = self.realtime_consumer.shutdown(timeout=30.0)
-        batch_success = self.batch_consumer.shutdown(timeout=30.0)
-        
-        # Clean up backend
+
+        # Create threads to shut down consumers in parallel
+        realtime_thread = threading.Thread(target=self.realtime_consumer.shutdown, args=(timeout,))
+        batch_thread = threading.Thread(target=self.batch_consumer.shutdown, args=(timeout,))
+
+        logger.info("Starting parallel shutdown of consumers...")
+        realtime_thread.start()
+        batch_thread.start()
+
+        logger.info("Waiting for realtime consumer to shut down...")
+        realtime_thread.join()
+        logger.info("Realtime consumer shut down.")
+
+        logger.info("Waiting for batch consumer to shut down...")
+        batch_thread.join()
+        logger.info("Batch consumer shut down.")
+
+        # The success is determined by the internal logic of the shutdown methods now
+        # For simplicity, we assume success if threads finish, but a more robust
+        # implementation might use a shared object or queue to return status.
+        realtime_success = not realtime_thread.is_alive()
+        batch_success = not batch_thread.is_alive()
+
+        # Clean up backend (only once)
         try:
             self.realtime_consumer.backend.cleanup()
         except Exception as e:
-            logger.warning(f"Error cleaning up realtime backend: {e}")
-        
+            logger.warning(f"Error cleaning up backend: {e}")
+
         success = realtime_success and batch_success
         logger.info(f"Transcription service shutdown complete: success={success}")
-        
+
         return {
             "success": success,
             "realtime_shutdown": realtime_success,

@@ -5,209 +5,227 @@ import asyncio
 import logging
 import threading
 import traceback
-from typing import List, Optional, Callable
+import queue
+from typing import List, Optional, Callable, NamedTuple
 
-from ..models.events import AudioEvent 
+from ..models.events import AudioEvent
 from ..models.transcription import TranscriptionResult
 from .base import AbstractTranscriptionBackend
 
 logger = logging.getLogger(__name__)
 
 
+class TranscriptionTask(NamedTuple):
+    """A task to be processed by a worker thread."""
+    audio_events: List[AudioEvent]
+    audio_buffer: bytes
+    is_final: bool
+
+
 class TranscriptionAudioConsumer:
-    """Unified transcription consumer - handles both realtime and batch transcription."""
-    
-    def __init__(self, 
+    """Manages a pool of worker threads to process transcription tasks from a queue."""
+
+    def __init__(self,
                  name: str,
-                 backend: AbstractTranscriptionBackend, 
+                 backend: AbstractTranscriptionBackend,
                  trigger_chunks: int,
-                 result_callback: Optional[Callable[['TranscriptionResult'], None]] = None,
-                 max_concurrent_threads: int = 1):
+                 result_callback: Optional[Callable[['TranscriptionResult'],
+                                                    None]] = None,
+                 max_concurrent_threads: int = 4):
         self.name = name
         self.backend = backend
         self.trigger_chunks = trigger_chunks
         self.result_callback = result_callback
         self.max_concurrent_threads = max_concurrent_threads
-        
+
         # Audio buffering
         self.audio_buffer = bytearray()
         self.audio_events = []
         self.chunk_start_time = None
         self.chunks_in_buffer = 0
-        
-        # Audio format assumptions (must match AudioCapture settings)
 
-        
-        # Calculate chunk-based triggers
-        # self.target_chunks = int(self.trigger_duration * self.chunks_per_second)
-        # self.min_chunks = int(0.5 * self.chunks_per_second)  # ~8 chunks for 0.5s minimum
-        
-        # Transcription tracking
-        self.transcription_tasks = []
-        self.active_threads = []
+        # Thread-safe queue for transcription tasks
+        self.task_queue = queue.Queue()
+        self.worker_threads = []
         self.chunk_counter = 0
-        self.last_transcription_time = time.time()
-        self.is_done = False
         self.shutdown_event = threading.Event()
+
+        self._start_workers()
+
+    def _start_workers(self):
+        """Create and start the pool of worker threads."""
+        for i in range(self.max_concurrent_threads):
+            thread = threading.Thread(target=self._worker_loop)
+            thread.name = f"worker_{self.name}_{i}"
+            thread.daemon = True
+            thread.start()
+            self.worker_threads.append(thread)
+        logger.info(
+            f"Started {len(self.worker_threads)} {self.name} consumer workers")
+
+    def _worker_loop(self):
+        """The main loop for each worker thread. Initializes an asyncio loop."""
+        thread_name = threading.current_thread().name
+        logger.debug(f"Worker thread {thread_name} starting")
         
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        try:
+            while True:
+                # Block indefinitely until a task is available
+                task = self.task_queue.get()
+
+                if task is None:
+                    # Sentinel value received, time to exit
+                    logger.debug(f"Worker {thread_name} received sentinel, exiting.")
+                    self.task_queue.task_done()
+                    break
+
+                logger.debug(f"Worker {thread_name} got task with chunks starting {task.audio_events[0].chunk_id}")
+                try:
+                    loop.run_until_complete(self._transcribe_buffer(task.audio_events, task.audio_buffer, task.is_final))
+                except Exception as e:
+                    logger.error(f"Unhandled exception in transcription task for {thread_name}: {e}", exc_info=True)
+                finally:
+                    logger.debug(f"Worker {thread_name} marking task as done.")
+                    self.task_queue.task_done()
+        finally:
+            loop.close()
+            logger.debug(f"Worker thread {thread_name} exiting and closing its event loop.")
+
     def on_audio_chunk(self, event: AudioEvent) -> None:
-        """Process audio chunk for transcription.
-        
-        Args:
-            event: Audio event to process
-        """
+        """Process audio chunk and add a task to the queue if needed."""
         if self.shutdown_event.is_set():
-            logger.debug(f"{self.name} consumer received audio after shutdown signal; ignoring chunk {event.chunk_id}")
             return
-        # Add audio to buffer and count chunks (don't count empty final chunks)
+
         self.audio_events.append(event)
         self.audio_buffer.extend(event.audio_data)
         if len(event.audio_data) > 0:
             self.chunks_in_buffer += 1
-        
+
         if self.chunk_start_time is None:
             self.chunk_start_time = event.timestamp
-        
-        # Check if we should transcribe
+
         should_transcribe_target = self.chunks_in_buffer >= self.trigger_chunks
         should_transcribe_final = event.final and self.chunks_in_buffer > 0
-        should_transcribe = should_transcribe_target or should_transcribe_final
-        
-        if should_transcribe:
-            audio_events_copy, audio_buffer_copy = self.__copy_and_clear_audio_events()
-            # Run transcription in background thread to avoid blocking
-            thread = threading.Thread(
-                target=self._run_transcription_sync,
-                args=(audio_events_copy, audio_buffer_copy, event.final),
-                daemon=True
-            )
-            thread.name = f"transcription_{self.name}_{self.chunk_counter}"
-            self.active_threads.append(thread)
-            logger.debug(f"{self.name} consumer starting thread {thread.name}; buffer_size={len(audio_buffer_copy)} bytes; events={len(audio_events_copy)}")
-            thread.start()
 
-    def __copy_and_clear_audio_events(self):
-        """Copy and clear audio events."""
+        if should_transcribe_target or should_transcribe_final:
+            audio_events_copy, audio_buffer_copy = self._copy_and_clear_audio_buffer(
+            )
+            task = TranscriptionTask(audio_events=audio_events_copy,
+                                     audio_buffer=audio_buffer_copy,
+                                     is_final=event.final)
+            logger.debug(f"Putting task on queue for {self.name}; "
+                         f"buffer_size={len(audio_buffer_copy)} bytes; "
+                         f"events={len(audio_events_copy)}")
+            self.task_queue.put(task)
+
+    def _copy_and_clear_audio_buffer(self):
+        """Atomically copy and clear the audio buffer."""
         audio_events_copy = self.audio_events.copy()
-        audio_buffer_copy = bytes(self.audio_buffer)  # Convert bytearray to bytes
+        audio_buffer_copy = bytes(self.audio_buffer)
         self.audio_events.clear()
         self.audio_buffer.clear()
         self.chunks_in_buffer = 0
         self.chunk_start_time = None
         return audio_events_copy, audio_buffer_copy
-    
-    def _run_transcription_sync(self, audio_events: List[AudioEvent], audio_buffer: bytes, is_final: bool = False) -> None:
-        """Run transcription in a synchronous manner for threading."""
-        current_thread = threading.current_thread()
-        logger.debug(f"Running transcription in thread: {current_thread.name}")
-        loop = None
-        try:
-            # Create new event loop for this thread
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self._transcribe_buffer(audio_events, audio_buffer, is_final))
-        except Exception as e:
-            logger.error(f"Error in transcription thread: {e}")
-            logger.error(traceback.format_exc())
-        finally:
-            try:
-                if loop is not None:
-                    loop.close()
-            except Exception as e:
-                logger.warning(f"{self.name} consumer loop close error: {e}")
-            # Remove this thread from active threads (by ident to avoid identity mismatch)
-            before = len(self.active_threads)
-            self.active_threads = [t for t in self.active_threads if t.ident != current_thread.ident]
-            after = len(self.active_threads)
-            logger.debug(f"{self.name} consumer thread finished: {current_thread.name}; removed={before-after}; remaining={after}")
-    
-    async def _transcribe_buffer(self, audio_events: List[AudioEvent], audio_buffer: bytes, is_final: bool = False) -> None:
+
+    async def _transcribe_buffer(self,
+                                 audio_events: List[AudioEvent],
+                                 audio_buffer: bytes,
+                                 is_final: bool = False) -> None:
+        """The core transcription logic for a single buffer."""
+        if not audio_buffer:
+            logger.warning("Skipping transcription for empty audio buffer")
+            return
+
         self.chunk_counter += 1
-        suffix = f"{self.chunk_counter}-final" if is_final else str(self.chunk_counter)
         first_event = audio_events[0]
         last_event = audio_events[-1]
-
+        suffix = f"{self.chunk_counter}-final" if is_final else str(
+            self.chunk_counter)
         chunk_id = f"{self.name}.{first_event.chunk_id}-{last_event.chunk_id}.{suffix}"
+
         logger.info(f"Transcribing chunk: {chunk_id} using {self.name}")
-        task = asyncio.create_task(
-            self._transcribe_with_backend(self.backend, audio_buffer, chunk_id, is_final)
-        )
-        self.transcription_tasks.append(task)
-        result = await task
+        result = await self._transcribe_with_backend(self.backend,
+                                                     audio_buffer, chunk_id,
+                                                     is_final)
 
-        # Attach accurate audio timing based on AudioEvent timestamps (recording time, not wall clock)
-        audio_start_time = first_event.timestamp
-        # last_event.chunk_duration_ms may be None for empty final events; default to 0 in that case
-        last_duration_s = (last_event.chunk_duration_ms or 0) / 1000.0
-        audio_end_time = last_event.timestamp + last_duration_s
+        if result:
+            audio_start_time = first_event.timestamp
+            last_duration_s = (last_event.chunk_duration_ms or 0) / 1000.0
+            audio_end_time = last_event.timestamp + last_duration_s
 
-        result.audio_start_time = audio_start_time
-        result.audio_end_time = audio_end_time
-        result.is_final = is_final
-        logger.info(f"✅ {self.name.upper()}: '{result.text}' ({result.confidence:.1%}) via {result.service}")
-        
-        self.result_callback(result)
-        
-    
-    async def _transcribe_with_backend(self, backend: AbstractTranscriptionBackend, 
-                                     audio_data: bytes, chunk_id: str, 
-                                     is_final: bool = False) -> Optional[TranscriptionResult]:
-        # Create transcription result with timing
+            result.audio_start_time = audio_start_time
+            result.audio_end_time = audio_end_time
+            result.is_final = is_final
+
+            logger.info(
+                f"✅ {self.name.upper()}: '{result.text}' ({result.confidence:.1%}) via {result.service}"
+            )
+            if self.result_callback:
+                self.result_callback(result)
+
+    async def _transcribe_with_backend(
+            self,
+            backend: AbstractTranscriptionBackend,
+            audio_data: bytes,
+            chunk_id: str,
+            is_final: bool = False) -> Optional[TranscriptionResult]:
+        """Calls the backend and enhances the result."""
         result = backend.transcribe_chunk(chunk_id, audio_data)
-        
-        # Enhance with our metadata
-        result.chunk_id = chunk_id
-        # result.audio_start_time = start_time
-        # result.audio_end_time = end_time
-        result.transcription_mode = self.name
-
-        if is_final:
-            self.is_done = True
-
+        if result:
+            result.chunk_id = chunk_id
+            result.transcription_mode = self.name
         return result
-    
-    def shutdown(self, timeout: float = 30.0) -> bool:
-        """Shutdown the consumer and wait for all pending tasks to complete.
-        
-        Args:
-            timeout: Maximum time to wait for tasks to complete in seconds
-            
-        Returns:
-            True if all tasks completed within timeout, False otherwise
-        """
-        logger.info(f"Shutting down {self.name} consumer with {len(self.active_threads)} active threads")
-        self.shutdown_event.set()
-        
-        # Prune any finished threads first
-        self.active_threads = [t for t in self.active_threads if t.is_alive()]
 
-        # Wait for all active threads to complete
+    def shutdown(self, timeout: float = 30.0) -> bool:
+        """Gracefully shut down the consumer and its worker threads using a non-blocking poll."""
+        logger.info(
+            f"[dmontauk] Shutting down {self.name} consumer with polling...")
+        self.shutdown_event.set()
+
+        # Non-blocking wait for the queue to be processed
+        logger.info(
+            f"[{self.name}] Waiting up to {timeout}s for task queue to empty..."
+        )
         start_time = time.time()
-        while self.active_threads and (time.time() - start_time) < timeout:
-            remaining_threads = [t for t in self.active_threads if t.is_alive()]
-            if not remaining_threads:
+        while time.time() - start_time < timeout:
+            if self.task_queue.empty(
+            ) and self.task_queue.unfinished_tasks == 0:
+                logger.info(
+                    f"[{self.name}] Task queue is empty. Proceeding with shutdown."
+                )
                 break
             logger.debug(
-                f"{self.name} consumer: {len(remaining_threads)} threads still running; "
-                f"threads={[ (t.name, t.is_alive()) for t in remaining_threads ]}"
+                f"[{self.name}] Queue not empty. Unfinished tasks: {self.task_queue.unfinished_tasks}. Waiting..."
             )
-            # Replace list with remaining only to avoid counting finished ones again
-            self.active_threads = remaining_threads
-            time.sleep(0.1)
-        
-        # Check if any threads are still running
-        still_running = [t for t in self.active_threads if t.is_alive()]
-        if still_running:
-            logger.warning(f"{self.name} consumer: {len(still_running)} threads did not complete within {timeout}s")
-            return False
-        else:
-            logger.info(f"{self.name} consumer shutdown complete")
-            return True
-    
+            time.sleep(1)
+        else:  # This runs if the loop finishes without a break
+            logger.warning(
+                f"[{self.name}] Timeout reached while waiting for queue. {self.task_queue.unfinished_tasks} tasks remain."
+            )
+
+        # Now, stop the worker threads
+        logger.debug(
+            f"[{self.name}] Sending {len(self.worker_threads)} sentinel values to workers."
+        )
+        for _ in self.worker_threads:
+            self.task_queue.put(None)
+
+        # Wait for all worker threads to terminate
+        logger.debug(
+            f"[{self.name}] Waiting for worker threads to terminate...")
+        for thread in self.worker_threads:
+            thread.join(2.0)  # Give each thread a couple of seconds to die
+            if thread.is_alive():
+                logger.warning(
+                    f"Worker thread {thread.name} did not terminate cleanly.")
+
+        logger.info(f"{self.name} consumer shutdown complete.")
+        return True
+
     def get_pending_task_count(self) -> int:
-        """Get the number of pending transcription tasks.
-        
-        Returns:
-            Number of active transcription threads
-        """
-        return len([t for t in self.active_threads if t.is_alive()])
+        """Get the number of pending transcription tasks."""
+        return self.task_queue.qsize()

@@ -6,13 +6,6 @@ google-auth>=2.10.0
 rich>=12.5.0
 click>=8.1.0
 pydantic>=1.10.0
-
-[dev]
-pytest>=7.1.0
-pytest-cov>=4.0.0
-pytest-mock>=3.10.0
-pytest-asyncio>=0.21.0
-black>=22.0.0
-flake8>=5.0.0
-isort>=5.10.0
-mypy>=1.0.0
+pyyaml>=6.0.0
+pypubsub>=4.0.3
+aiohttp>=3.8.0
