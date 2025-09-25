@@ -128,6 +128,10 @@ def setup_logging(config, level: str = "INFO") -> None:
 
 def main() -> None:
     """Main entry point for Listen2Me application."""
+    # Start the debugger server but don't wait for it to attach
+    import debugpy
+    debugpy.listen(("0.0.0.0", 5678))
+
     parser = argparse.ArgumentParser(
         description="Listen2Me - Real-time voice transcription",
         epilog="Commands: 1=Start recording, 2=Stop recording, 3=Reset session, q=Quit"

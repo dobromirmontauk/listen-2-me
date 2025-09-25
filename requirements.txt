@@ -22,3 +22,6 @@ pypubsub>=4.0.3
 
 # ChatGPT integration
 aiohttp>=3.8.0
+
+# Debugging
+debugpy>=1.6.0
