@@ -19,3 +19,6 @@ pyyaml>=6.0.0
 
 # Pub/Sub messaging
 pypubsub>=4.0.3
+
+# ChatGPT integration
+aiohttp>=3.8.0

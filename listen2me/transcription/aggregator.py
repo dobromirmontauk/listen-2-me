@@ -1,16 +1,23 @@
-"""Transcription aggregator that collects and prints all transcription results."""
+"""Debug transcription aggregator that periodically prints accumulated results.
+
+This component is intended for console debugging. It subscribes to a
+transcription topic, accumulates all incoming `TranscriptionResult`s and
+prints a summary every ~5 seconds of covered audio time (based on
+TranscriptionResult.audio_start_time/audio_end_time), and also once on
+shutdown.
+"""
 
 import logging
 import threading
-from typing import List, Dict
+from typing import List, Dict, Optional
 from pubsub import pub
 from ..models.transcription import TranscriptionResult
 
 logger = logging.getLogger(__name__)
 
 
-class TranscriptionAggregator:
-    """Aggregates transcription results and prints them upon shutdown."""
+class DebugTranscriptionAggregator:
+    """Aggregates transcription results and prints them periodically and on shutdown."""
     
     def __init__(self, topic: str, name: str):
         """Initialize transcription aggregator.
@@ -28,6 +35,12 @@ class TranscriptionAggregator:
         # Thread safety
         self.lock = threading.Lock()
         self.shutdown_event = threading.Event()
+
+        # Debug printing policy (~5 seconds of covered audio)
+        self.print_interval_seconds: float = 5.0
+        self.coverage_start_time: Optional[float] = None
+        self.latest_end_time: Optional[float] = None
+        self.next_print_threshold_seconds: float = self.print_interval_seconds
         
         # Subscribe to transcription topic
         pub.subscribe(self._on_result, topic)
@@ -39,6 +52,18 @@ class TranscriptionAggregator:
         with self.lock:
             self.results.append(result)
             logger.debug(f"Aggregated {self.name} result: {result.text[:50]}...")
+            # Update covered audio window using recording timestamps
+            if result.audio_start_time is not None and result.audio_end_time is not None:
+                if self.coverage_start_time is None:
+                    self.coverage_start_time = result.audio_start_time
+                if self.latest_end_time is None or result.audio_end_time > self.latest_end_time:
+                    self.latest_end_time = result.audio_end_time
+
+                covered = self.latest_end_time - self.coverage_start_time
+                # If we've crossed one or more print thresholds, print summary
+                while covered >= self.next_print_threshold_seconds:
+                    self.print_transcription_summary()
+                    self.next_print_threshold_seconds += self.print_interval_seconds
     
     def get_results_summary(self) -> Dict[str, any]:
         """Get summary of aggregated results.
@@ -61,6 +86,9 @@ class TranscriptionAggregator:
         print(f"🎙️  {self.name.upper()} TRANSCRIPTION SUMMARY")
         print(f"{'='*60}")
         print(f"Total transcriptions: {summary['count']}")
+        if self.coverage_start_time is not None and self.latest_end_time is not None:
+            covered = self.latest_end_time - self.coverage_start_time
+            print(f"Covered audio (s): {covered:.2f}")
         print()
         
         if summary['count'] > 0:
@@ -106,7 +134,7 @@ class TranscriptionAggregator:
         Returns:
             True if shutdown completed successfully
         """
-        logger.info("Shutting down TranscriptionAggregator...")
+        logger.info("Shutting down DebugTranscriptionAggregator...")
         self.shutdown_event.set()
         
         # Unsubscribe from topic
@@ -118,5 +146,5 @@ class TranscriptionAggregator:
         # Print transcription summary
         self.print_transcription_summary()
         
-        logger.info("TranscriptionAggregator shutdown complete")
+        logger.info("DebugTranscriptionAggregator shutdown complete")
         return True 

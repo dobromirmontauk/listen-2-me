@@ -56,7 +56,8 @@ class TranscriptionService:
             name="realtime",
             backend=backend,
             trigger_chunks=realtime_trigger_chunks,
-            result_callback=self.realtime_publisher.get_callback()
+            result_callback=self.realtime_publisher.get_callback(),
+            max_concurrent_threads=1
         )
         pub.subscribe(self.realtime_consumer.on_audio_chunk, self.topic)
             
@@ -64,7 +65,8 @@ class TranscriptionService:
             name="batch",
             backend=backend,
             trigger_chunks=batch_trigger_chunks,
-            result_callback=self.batch_publisher.get_callback()
+            result_callback=self.batch_publisher.get_callback(),
+            max_concurrent_threads=1
         )
         pub.subscribe(self.batch_consumer.on_audio_chunk, self.topic)
 

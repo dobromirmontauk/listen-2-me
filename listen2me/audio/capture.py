@@ -146,15 +146,6 @@ class AudioCapture:
                 self.pyaudio_instance.terminate()
                 self.pyaudio_instance = None
     
-    def set_audio_event_callback(self, callback: Callable[[AudioEvent], None]) -> None:
-        """Set callback for publishing audio events.
-        
-        Args:
-            callback: Function to call when new audio events are available
-        """
-        self.audio_event_callback = callback
-        logger.info("Audio event callback set")
-    
     def get_recording_stats(self) -> AudioStats:
         """Get current recording statistics."""
         duration = 0.0

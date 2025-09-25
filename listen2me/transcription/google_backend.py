@@ -9,6 +9,7 @@ from .base import AbstractTranscriptionBackend
 from ..models.transcription import TranscriptionResult
 
 from google.cloud import speech
+from google.api_core import exceptions as gax_exceptions
 from google.oauth2 import service_account
 
 logger = logging.getLogger(__name__)
@@ -77,8 +78,18 @@ class GoogleSpeechBackend(AbstractTranscriptionBackend):
         
         # Create audio object
         audio = speech.RecognitionAudio(content=audio_chunk)
-        # Perform synchronous speech recognition
-        response = self.client.recognize(config=self.config, audio=audio)
+        # Perform synchronous speech recognition with a per-request timeout
+        try:
+            response = self.client.recognize(config=self.config, audio=audio, timeout=2.0)
+        except gax_exceptions.DeadlineExceeded as e:
+            logger.error("Google STT recognize deadline exceeded for chunk %s", chunk_id)
+            raise RuntimeError(f"Google Speech recognize timeout (chunk={chunk_id}): {e}") from e
+        except gax_exceptions.ServiceUnavailable as e:
+            logger.error("Google STT service unavailable for chunk %s", chunk_id)
+            raise RuntimeError(f"Google Speech service unavailable (chunk={chunk_id}): {e}") from e
+        except gax_exceptions.GoogleAPICallError as e:
+            logger.error("Google STT API call error for chunk %s: %s", chunk_id, e)
+            raise RuntimeError(f"Google Speech API error (chunk={chunk_id}): {e}") from e
         processing_time = time.time() - start_time
             
         if not response.results:

@@ -9,7 +9,7 @@ from pathlib import Path
 from listen2me.audio.audio_pub import AudioPublisher
 from listen2me.audio.capture import AudioCapture
 from listen2me.services.transcription_service import TranscriptionService
-from listen2me.transcription.aggregator import TranscriptionAggregator
+from listen2me.transcription.aggregator import DebugTranscriptionAggregator
 
 from .config import Listen2MeConfig 
 
@@ -52,8 +52,8 @@ class Server:
         self.transcription_service.start_transcription_consumers(chunks_per_second)
         
         # Create transcription aggregators
-        self.realtime_aggregator = TranscriptionAggregator("transcription.realtime", "realtime")
-        self.batch_aggregator = TranscriptionAggregator("transcription.batch", "batch")
+        self.realtime_aggregator = DebugTranscriptionAggregator("transcription.realtime", "realtime")
+        self.batch_aggregator = DebugTranscriptionAggregator("transcription.batch", "batch")
 
     def run(self, duration: int):
         try:

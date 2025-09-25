@@ -21,11 +21,13 @@ class TranscriptionAudioConsumer:
                  name: str,
                  backend: AbstractTranscriptionBackend, 
                  trigger_chunks: int,
-                 result_callback: Optional[Callable[['TranscriptionResult'], None]] = None):
+                 result_callback: Optional[Callable[['TranscriptionResult'], None]] = None,
+                 max_concurrent_threads: int = 1):
         self.name = name
         self.backend = backend
         self.trigger_chunks = trigger_chunks
         self.result_callback = result_callback
+        self.max_concurrent_threads = max_concurrent_threads
         
         # Audio buffering
         self.audio_buffer = bytearray()
@@ -54,6 +56,9 @@ class TranscriptionAudioConsumer:
         Args:
             event: Audio event to process
         """
+        if self.shutdown_event.is_set():
+            logger.debug(f"{self.name} consumer received audio after shutdown signal; ignoring chunk {event.chunk_id}")
+            return
         # Add audio to buffer and count chunks (don't count empty final chunks)
         self.audio_events.append(event)
         self.audio_buffer.extend(event.audio_data)
@@ -78,6 +83,7 @@ class TranscriptionAudioConsumer:
             )
             thread.name = f"transcription_{self.name}_{self.chunk_counter}"
             self.active_threads.append(thread)
+            logger.debug(f"{self.name} consumer starting thread {thread.name}; buffer_size={len(audio_buffer_copy)} bytes; events={len(audio_events_copy)}")
             thread.start()
 
     def __copy_and_clear_audio_events(self):
@@ -94,6 +100,7 @@ class TranscriptionAudioConsumer:
         """Run transcription in a synchronous manner for threading."""
         current_thread = threading.current_thread()
         logger.debug(f"Running transcription in thread: {current_thread.name}")
+        loop = None
         try:
             # Create new event loop for this thread
             loop = asyncio.new_event_loop()
@@ -103,10 +110,16 @@ class TranscriptionAudioConsumer:
             logger.error(f"Error in transcription thread: {e}")
             logger.error(traceback.format_exc())
         finally:
-            loop.close()
-            # Remove this thread from active threads
-            if current_thread in self.active_threads:
-                self.active_threads.remove(current_thread)
+            try:
+                if loop is not None:
+                    loop.close()
+            except Exception as e:
+                logger.warning(f"{self.name} consumer loop close error: {e}")
+            # Remove this thread from active threads (by ident to avoid identity mismatch)
+            before = len(self.active_threads)
+            self.active_threads = [t for t in self.active_threads if t.ident != current_thread.ident]
+            after = len(self.active_threads)
+            logger.debug(f"{self.name} consumer thread finished: {current_thread.name}; removed={before-after}; remaining={after}")
     
     async def _transcribe_buffer(self, audio_events: List[AudioEvent], audio_buffer: bytes, is_final: bool = False) -> None:
         self.chunk_counter += 1
@@ -165,13 +178,21 @@ class TranscriptionAudioConsumer:
         logger.info(f"Shutting down {self.name} consumer with {len(self.active_threads)} active threads")
         self.shutdown_event.set()
         
+        # Prune any finished threads first
+        self.active_threads = [t for t in self.active_threads if t.is_alive()]
+
         # Wait for all active threads to complete
         start_time = time.time()
         while self.active_threads and (time.time() - start_time) < timeout:
             remaining_threads = [t for t in self.active_threads if t.is_alive()]
             if not remaining_threads:
                 break
-            logger.debug(f"{self.name} consumer: {len(remaining_threads)} threads still running")
+            logger.debug(
+                f"{self.name} consumer: {len(remaining_threads)} threads still running; "
+                f"threads={[ (t.name, t.is_alive()) for t in remaining_threads ]}"
+            )
+            # Replace list with remaining only to avoid counting finished ones again
+            self.active_threads = remaining_threads
             time.sleep(0.1)
         
         # Check if any threads are still running
